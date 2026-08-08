@@ -2,6 +2,8 @@ import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetSchema } from "../../test/helpers/apply-schema";
 import {
+  copyClassificationFromDuplicate,
+  findComponentByReadmeFingerprint,
   findComponentByRepo,
   findOrCreateCategoryNode,
   getCategoryNode,
@@ -10,6 +12,7 @@ import {
   insertSourcePost,
   listComponents,
   listSourcePostsForComponent,
+  setReadmeFingerprint,
   updateComponentClassification,
   updateComponentStatus,
   upsertAccount,
@@ -201,5 +204,85 @@ describe("components-repo", () => {
     const accounts = await listAccounts(env.DB);
     expect(accounts).toHaveLength(1);
     expect(accounts[0]?.x_user_id).toBe("222");
+  });
+
+  it("finds a component by README fingerprint, earliest match first", async () => {
+    await insertDiscoveredComponent(env.DB, {
+      id: "c1",
+      name: "a",
+      repoOwner: "acme",
+      repoName: "a",
+      repoUrl: "https://github.com/acme/a",
+      evidencePrefix: "evidence/c1/",
+    });
+    await insertDiscoveredComponent(env.DB, {
+      id: "c2",
+      name: "b",
+      repoOwner: "acme",
+      repoName: "b",
+      repoUrl: "https://github.com/acme/b",
+      evidencePrefix: "evidence/c2/",
+    });
+
+    // Unclassified rows (category still null) shouldn't match -- nothing
+    // to copy yet.
+    expect(await findComponentByReadmeFingerprint(env.DB, "fp1", "c2")).toBeNull();
+
+    const categoryNodeId = await findOrCreateCategoryNode(env.DB, "crypto-trading-bot");
+    const classification: Classification = {
+      category: "other",
+      suggestedCategory: "crypto-trading-bot",
+      claims: ["makes money"],
+      mechanismSummary: "trades things",
+      cliInvocation: { command: "", outputMode: "stdout", outputPathTemplate: null },
+      rawResponseEvidenceKey: "evidence/c1/classify/response.json",
+    };
+    await updateComponentClassification(env.DB, "c1", classification, categoryNodeId);
+    await setReadmeFingerprint(env.DB, "c1", "fp1", null);
+
+    const match = await findComponentByReadmeFingerprint(env.DB, "fp1", "c2");
+    expect(match?.id).toBe("c1");
+    // Excludes itself.
+    expect(await findComponentByReadmeFingerprint(env.DB, "fp1", "c1")).toBeNull();
+  });
+
+  it("copies classification fields verbatim from a duplicate match", async () => {
+    await insertDiscoveredComponent(env.DB, {
+      id: "c1",
+      name: "original",
+      repoOwner: "acme",
+      repoName: "original",
+      repoUrl: "https://github.com/acme/original",
+      evidencePrefix: "evidence/c1/",
+    });
+    await insertDiscoveredComponent(env.DB, {
+      id: "c2",
+      name: "copycat",
+      repoOwner: "acme",
+      repoName: "copycat",
+      repoUrl: "https://github.com/acme/copycat",
+      evidencePrefix: "evidence/c2/",
+    });
+    const categoryNodeId = await findOrCreateCategoryNode(env.DB, "crypto-trading-bot");
+    const classification: Classification = {
+      category: "other",
+      suggestedCategory: "crypto-trading-bot",
+      claims: ["makes money fast"],
+      mechanismSummary: "trades things",
+      cliInvocation: { command: "", outputMode: "stdout", outputPathTemplate: null },
+      rawResponseEvidenceKey: "evidence/c1/classify/response.json",
+    };
+    await updateComponentClassification(env.DB, "c1", classification, categoryNodeId);
+
+    const original = await getComponent(env.DB, "c1");
+    if (!original) throw new Error("expected c1 to exist");
+    await copyClassificationFromDuplicate(env.DB, "c2", original);
+    await setReadmeFingerprint(env.DB, "c2", "fp1", "c1");
+
+    const copy = await getComponent(env.DB, "c2");
+    expect(copy?.category).toBe("other");
+    expect(copy?.category_node_id).toBe(categoryNodeId);
+    expect(JSON.parse(copy?.claims ?? "[]")).toEqual(["makes money fast"]);
+    expect(copy?.duplicate_of_component_id).toBe("c1");
   });
 });

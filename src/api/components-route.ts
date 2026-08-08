@@ -69,6 +69,7 @@ async function toComponentSummaryDTO(row: ComponentRow, env: Env): Promise<Compo
     categoryNode: categoryNodeRow
       ? { id: categoryNodeRow.id, name: categoryNodeRow.name, parentId: categoryNodeRow.parent_id }
       : null,
+    duplicateOfComponentId: row.duplicate_of_component_id,
     claims: parseClaims(row.claims),
     mechanismSummary: row.mechanism_summary,
     tierReached: row.tier_reached,

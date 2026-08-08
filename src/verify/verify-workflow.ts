@@ -2,9 +2,12 @@ import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import {
+  copyClassificationFromDuplicate,
+  findComponentByReadmeFingerprint,
   findOrCreateCategoryNode,
   getComponent,
   parseCliInvocation,
+  setReadmeFingerprint,
   updateComponentClassification,
   updateComponentSanityPass,
   updateComponentStatus,
@@ -12,6 +15,7 @@ import {
 import { evidenceKey, writeEvidenceBatch } from "../catalog/evidence-store";
 import {
   CAPABILITY_TIER_CATEGORY,
+  type Category,
   type CliInvocation,
   type Env,
   type FixtureResult,
@@ -20,6 +24,7 @@ import {
 import { classifyReadme } from "./groq-client";
 import { getReadmeText } from "./github-client";
 import { computeMajorityVerdict } from "./majority-verdict";
+import { fingerprintReadme } from "./readme-fingerprint";
 import { isTerminalStatus } from "./status";
 import { runCapabilityFixture, FIXTURES } from "./steps/capability";
 import { runSanityCheck } from "./steps/sanity";
@@ -79,46 +84,68 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
     let category = component.category;
     let cliInvocation: CliInvocation | null = parseCliInvocation(component.cli_invocation);
     if (readmeText) {
-      const classifyResult = await step.do(
-        "classify-llm",
-        // Groq's free tier shares an 8000 tokens/minute budget across every
-        // concurrent verification run -- confirmed live, two repos
-        // classifying at once were enough to trip it. A longer, more
-        // generous backoff (up to ~4 minutes total) matters more here than
-        // it would against a paid-tier or per-request-limited API.
-        { retries: { limit: 5, delay: "15 seconds", backoff: "exponential" } },
-        async () => classifyReadme(readmeText, { apiKey: this.env.GROQ_API_KEY }),
+      const fingerprint = await step.do("classify-fingerprint", async () => fingerprintReadme(readmeText));
+      // Exact-match README template already classified elsewhere -- reuse
+      // its result instead of spending a fresh, rate-limited Groq call on
+      // what is (after stripping images/links/numbers) the same document.
+      // See src/verify/readme-fingerprint.ts.
+      const duplicate = await step.do("classify-check-duplicate", async () =>
+        findComponentByReadmeFingerprint(this.env.DB, fingerprint, componentId),
       );
 
-      await step.do("classify-persist", async () => {
-        await writeEvidenceBatch(this.env.EVIDENCE, [
-          { key: evidenceKey(componentId, "classify", "readme.md"), body: readmeText },
-          {
-            key: evidenceKey(componentId, "classify", "response.json"),
-            body: classifyResult.rawResponseText,
-            contentType: "application/json",
-          },
-        ]);
-        // Top-level for now (parentId null) -- nesting into subclades is a
-        // curation step that doesn't exist yet, see types.ts's "Category
-        // graph" comment.
-        const categoryNodeId = await findOrCreateCategoryNode(
-          this.env.DB,
-          classifyResult.classification.suggestedCategory,
+      if (duplicate) {
+        await step.do("classify-persist-duplicate", async () => {
+          await writeEvidenceBatch(this.env.EVIDENCE, [
+            { key: evidenceKey(componentId, "classify", "readme.md"), body: readmeText },
+          ]);
+          await copyClassificationFromDuplicate(this.env.DB, componentId, duplicate);
+          await setReadmeFingerprint(this.env.DB, componentId, fingerprint, duplicate.id);
+        });
+        category = duplicate.category as Category | null;
+        cliInvocation = parseCliInvocation(duplicate.cli_invocation);
+      } else {
+        const classifyResult = await step.do(
+          "classify-llm",
+          // Groq's free tier shares an 8000 tokens/minute budget across every
+          // concurrent verification run -- confirmed live, two repos
+          // classifying at once were enough to trip it. A longer, more
+          // generous backoff (up to ~4 minutes total) matters more here than
+          // it would against a paid-tier or per-request-limited API.
+          { retries: { limit: 5, delay: "15 seconds", backoff: "exponential" } },
+          async () => classifyReadme(readmeText, { apiKey: this.env.GROQ_API_KEY }),
         );
-        await updateComponentClassification(
-          this.env.DB,
-          componentId,
-          {
-            ...classifyResult.classification,
-            rawResponseEvidenceKey: evidenceKey(componentId, "classify", "response.json"),
-          },
-          categoryNodeId,
-        );
-      });
 
-      category = classifyResult.classification.category;
-      cliInvocation = classifyResult.classification.cliInvocation;
+        await step.do("classify-persist", async () => {
+          await writeEvidenceBatch(this.env.EVIDENCE, [
+            { key: evidenceKey(componentId, "classify", "readme.md"), body: readmeText },
+            {
+              key: evidenceKey(componentId, "classify", "response.json"),
+              body: classifyResult.rawResponseText,
+              contentType: "application/json",
+            },
+          ]);
+          // Top-level for now (parentId null) -- nesting into subclades is a
+          // curation step that doesn't exist yet, see types.ts's "Category
+          // graph" comment.
+          const categoryNodeId = await findOrCreateCategoryNode(
+            this.env.DB,
+            classifyResult.classification.suggestedCategory,
+          );
+          await updateComponentClassification(
+            this.env.DB,
+            componentId,
+            {
+              ...classifyResult.classification,
+              rawResponseEvidenceKey: evidenceKey(componentId, "classify", "response.json"),
+            },
+            categoryNodeId,
+          );
+          await setReadmeFingerprint(this.env.DB, componentId, fingerprint, null);
+        });
+
+        category = classifyResult.classification.category;
+        cliInvocation = classifyResult.classification.cliInvocation;
+      }
     }
 
     // ---- Smoke ----

@@ -1,7 +1,8 @@
 // Applies migrations/*.sql statement-by-statement via prepare().run() rather
 // than D1Database.exec() (which has stricter single-line-statement,
 // no-comment constraints) so local test runs don't depend on that parser.
-// Keep this in sync with migrations/0001_init.sql and 0002_category_graph.sql.
+// Keep this in sync with migrations/0001_init.sql, 0002_category_graph.sql,
+// and 0003_readme_fingerprint.sql.
 const STATEMENTS: string[] = [
   `CREATE TABLE accounts (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,6 +28,8 @@ const STATEMENTS: string[] = [
     claims             TEXT,
     mechanism_summary  TEXT,
     cli_invocation     TEXT,
+    readme_fingerprint TEXT,
+    duplicate_of_component_id TEXT REFERENCES components(id),
     tier_reached       TEXT NOT NULL DEFAULT 'none',
     status             TEXT NOT NULL DEFAULT 'discovered',
     evidence_prefix    TEXT NOT NULL,
@@ -36,6 +39,7 @@ const STATEMENTS: string[] = [
     UNIQUE (repo_owner, repo_name)
   )`,
   `CREATE INDEX idx_components_category_status ON components(category, status)`,
+  `CREATE INDEX idx_components_readme_fingerprint ON components(readme_fingerprint)`,
   `CREATE TABLE source_posts (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     component_id   TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,

@@ -145,6 +145,66 @@ export async function getCategoryNode(db: D1Database, id: string): Promise<Categ
   return row ?? null;
 }
 
+// README fingerprint dedup -- see src/verify/readme-fingerprint.ts. Only
+// matches components that finished classification (`category IS NOT
+// NULL`), and picks the earliest such match, so a chain of copies always
+// resolves back to the first-seen instance of a template rather than
+// whichever happened to be checked most recently.
+export async function findComponentByReadmeFingerprint(
+  db: D1Database,
+  fingerprint: string,
+  excludeId: string,
+): Promise<ComponentRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT * FROM components WHERE readme_fingerprint = ? AND id != ? AND category IS NOT NULL
+       ORDER BY discovered_at ASC LIMIT 1`,
+    )
+    .bind(fingerprint, excludeId)
+    .first<ComponentRow>();
+  return row ?? null;
+}
+
+export async function setReadmeFingerprint(
+  db: D1Database,
+  id: string,
+  fingerprint: string,
+  duplicateOfComponentId: string | null,
+): Promise<void> {
+  await db
+    .prepare("UPDATE components SET readme_fingerprint = ?, duplicate_of_component_id = ? WHERE id = ?")
+    .bind(fingerprint, duplicateOfComponentId, id)
+    .run();
+}
+
+// Reuses an already-classified component's result verbatim (raw JSON
+// columns copied as-is, no re-parse/re-stringify) rather than spending a
+// fresh Groq call -- see verify-workflow.ts's classify step. Deliberately
+// separate from updateComponentClassification: this is *not* an
+// independent classification, and shouldn't be constructed to look like
+// one (e.g. by faking a Classification object with a placeholder
+// suggestedCategory).
+export async function copyClassificationFromDuplicate(
+  db: D1Database,
+  id: string,
+  duplicate: ComponentRow,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE components SET category = ?, category_node_id = ?, claims = ?, mechanism_summary = ?, cli_invocation = ?
+       WHERE id = ?`,
+    )
+    .bind(
+      duplicate.category,
+      duplicate.category_node_id,
+      duplicate.claims,
+      duplicate.mechanism_summary,
+      duplicate.cli_invocation,
+      id,
+    )
+    .run();
+}
+
 // Sets status (and the tier it implies) for a tier's outcome. `terminal`
 // controls whether verified_at is stamped -- callers pass the result of
 // isTerminalStatus() rather than this function re-deriving it, since that

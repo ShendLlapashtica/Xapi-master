@@ -157,6 +157,8 @@ export interface ComponentRow {
   claims: string | null; // JSON-encoded string[]
   mechanism_summary: string | null;
   cli_invocation: string | null; // JSON-encoded CliInvocation
+  readme_fingerprint: string | null;
+  duplicate_of_component_id: string | null;
   tier_reached: TierReached;
   status: ComponentStatus;
   evidence_prefix: string;
@@ -189,6 +191,7 @@ export interface ComponentSummaryDTO {
   repo: { owner: string; name: string; url: string };
   category: Category | null;
   categoryNode: { id: string; name: string; parentId: string | null } | null;
+  duplicateOfComponentId: string | null;
   claims: string[];
   mechanismSummary: string | null;
   tierReached: TierReached;
