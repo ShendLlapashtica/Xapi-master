@@ -1,0 +1,32 @@
+[
+  {
+    "fixtureId": "text-native-pdf",
+    "file": "text-native.pdf",
+    "minWordCount": 180,
+    "expectedStructures": []
+  },
+  {
+    "fixtureId": "scanned-image-pdf",
+    "file": "scanned-image.pdf",
+    "minWordCount": 80,
+    "expectedStructures": []
+  },
+  {
+    "fixtureId": "multi-column-pdf",
+    "file": "multi-column.pdf",
+    "minWordCount": 180,
+    "expectedStructures": []
+  },
+  {
+    "fixtureId": "docx",
+    "file": "sample.docx",
+    "minWordCount": 180,
+    "expectedStructures": ["heading"]
+  },
+  {
+    "fixtureId": "html",
+    "file": "page.html",
+    "minWordCount": 180,
+    "expectedStructures": ["table"]
+  }
+]

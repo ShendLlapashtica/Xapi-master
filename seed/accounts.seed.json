@@ -1,0 +1,7 @@
+{
+  "_comment": "Replace with the 10-20 tracked X handles. x_user_id must be pre-resolved via a one-time GET https://api.x.com/2/users/by?usernames=handle1,handle2,... call (see scripts/seed-accounts.ts) -- this file intentionally isn't resolved live at seed time.",
+  "accounts": [
+    { "handle": "example_handle_1", "xUserId": "REPLACE_WITH_REAL_X_USER_ID" },
+    { "handle": "example_handle_2", "xUserId": "REPLACE_WITH_REAL_X_USER_ID" }
+  ]
+}

@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Document Extraction: A Short Overview</title></head>
+<body>
+<h1>Document Extraction: A Short Overview</h1>
+<p>Paper documents have carried information for centuries, but the last three decades have pushed most of that record into digital form. Converting a scanned page or a legacy file into structured text is a small task in isolation, yet it sits underneath search engines, archives, and every pipeline that needs to reason about what a document actually says rather than just where it is stored.</p>
+<p>A text extraction tool is judged by more than whether it runs without crashing. It has to preserve reading order across columns, recognize headings as headings rather than as ordinary paragraphs, and produce output that a downstream system can actually use. Many tools clear the first bar and fail the second, which is why word count alone is a weak signal of quality.</p>
+<p>Scanned pages present a harder problem than native text, because there is no embedded character data to read directly. Whatever text comes out has to be recognized from pixels, and recognition quality depends heavily on scan resolution, contrast, and font choice. A tool that handles native PDFs well may still produce nothing usable when handed a scan of the same page.</p>
+<p>Multi-column layouts are a common failure point. A naive extractor reads left to right across the full page width, which interleaves unrelated sentences from adjacent columns into a single garbled line. A competent one detects the column boundaries first and reads each column top to bottom before moving to the next, preserving the sentence order a human reader would expect.</p>
+<h2>Tool comparison</h2>
+<table>
+<tr><th>Tool class</th><th>Handles scans</th><th>Preserves column order</th></tr>
+<tr><td>Plain text extractor</td><td>No</td><td>No</td></tr>
+<tr><td>Layout-aware parser</td><td>No</td><td>Yes</td></tr>
+<tr><td>OCR pipeline</td><td>Yes</td><td>Depends</td></tr>
+</table>
+</body>
+</html>

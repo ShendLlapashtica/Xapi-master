@@ -1,0 +1,232 @@
+import type {
+  AccountRow,
+  Category,
+  Classification,
+  ComponentRow,
+  ComponentStatus,
+  ComponentsQueryParams,
+  SourcePostRow,
+} from "../types";
+import { tierForStatus } from "../verify/status";
+
+export interface NewComponent {
+  id: string;
+  name: string;
+  repoOwner: string;
+  repoName: string;
+  repoUrl: string;
+  evidencePrefix: string;
+}
+
+export interface NewSourcePost {
+  postId: string;
+  postUrl: string;
+  authorHandle: string;
+  postedAt: string;
+}
+
+export async function findComponentByRepo(
+  db: D1Database,
+  repoOwner: string,
+  repoName: string,
+): Promise<ComponentRow | null> {
+  const row = await db
+    .prepare("SELECT * FROM components WHERE repo_owner = ? AND repo_name = ?")
+    .bind(repoOwner, repoName)
+    .first<ComponentRow>();
+  return row ?? null;
+}
+
+export async function getComponent(db: D1Database, id: string): Promise<ComponentRow | null> {
+  const row = await db.prepare("SELECT * FROM components WHERE id = ?").bind(id).first<ComponentRow>();
+  return row ?? null;
+}
+
+export async function insertDiscoveredComponent(db: D1Database, c: NewComponent): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO components (id, name, repo_owner, repo_name, repo_url, tier_reached, status, evidence_prefix)
+       VALUES (?, ?, ?, ?, ?, 'none', 'discovered', ?)`,
+    )
+    .bind(c.id, c.name, c.repoOwner, c.repoName, c.repoUrl, c.evidencePrefix)
+    .run();
+}
+
+// Idempotent on (component_id, post_id) -- a repo reshared by the same post
+// twice (e.g. a retried queue message) doesn't create duplicate rows.
+export async function insertSourcePost(
+  db: D1Database,
+  componentId: string,
+  post: NewSourcePost,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO source_posts (component_id, post_id, post_url, author_handle, posted_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .bind(componentId, post.postId, post.postUrl, post.authorHandle, post.postedAt)
+    .run();
+}
+
+export async function listSourcePostsForComponent(
+  db: D1Database,
+  componentId: string,
+): Promise<SourcePostRow[]> {
+  const { results } = await db
+    .prepare("SELECT * FROM source_posts WHERE component_id = ? ORDER BY posted_at DESC")
+    .bind(componentId)
+    .all<SourcePostRow>();
+  return results;
+}
+
+export async function updateComponentSanityPass(
+  db: D1Database,
+  id: string,
+  commitShaChecked: string,
+): Promise<void> {
+  await db
+    .prepare("UPDATE components SET commit_sha_checked = ? WHERE id = ?")
+    .bind(commitShaChecked, id)
+    .run();
+}
+
+export async function updateComponentClassification(
+  db: D1Database,
+  id: string,
+  classification: Classification,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE components SET category = ?, claims = ?, mechanism_summary = ?, cli_invocation = ?
+       WHERE id = ?`,
+    )
+    .bind(
+      classification.category,
+      JSON.stringify(classification.claims),
+      classification.mechanismSummary,
+      JSON.stringify(classification.cliInvocation),
+      id,
+    )
+    .run();
+}
+
+// Sets status (and the tier it implies) for a tier's outcome. `terminal`
+// controls whether verified_at is stamped -- callers pass the result of
+// isTerminalStatus() rather than this function re-deriving it, since that
+// decision also needs the category, which may not have been persisted yet
+// (e.g. the sanity tier fails before classify has ever run).
+export async function updateComponentStatus(
+  db: D1Database,
+  id: string,
+  status: ComponentStatus,
+  terminal: boolean,
+): Promise<void> {
+  const tier = tierForStatus(status);
+  if (terminal) {
+    await db
+      .prepare(
+        "UPDATE components SET status = ?, tier_reached = ?, verified_at = CURRENT_TIMESTAMP WHERE id = ?",
+      )
+      .bind(status, tier, id)
+      .run();
+  } else {
+    await db
+      .prepare("UPDATE components SET status = ?, tier_reached = ? WHERE id = ?")
+      .bind(status, tier, id)
+      .run();
+  }
+}
+
+export interface ListComponentsResult {
+  rows: ComponentRow[];
+  nextCursor: string | null;
+}
+
+export async function listComponents(
+  db: D1Database,
+  params: ComponentsQueryParams,
+): Promise<ListComponentsResult> {
+  const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
+  const conditions: string[] = [];
+  const binds: unknown[] = [];
+
+  if (params.category) {
+    conditions.push("category = ?");
+    binds.push(params.category);
+  }
+  if (params.status) {
+    conditions.push("status = ?");
+    binds.push(params.status);
+  }
+
+  const cursor = decodeCursor(params.cursor);
+  if (cursor) {
+    conditions.push("(discovered_at < ? OR (discovered_at = ? AND id < ?))");
+    binds.push(cursor.discoveredAt, cursor.discoveredAt, cursor.id);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  // Fetch one extra row to know whether a next page exists.
+  const sql = `SELECT * FROM components ${where} ORDER BY discovered_at DESC, id DESC LIMIT ?`;
+  binds.push(limit + 1);
+
+  const { results } = await db
+    .prepare(sql)
+    .bind(...binds)
+    .all<ComponentRow>();
+
+  const hasMore = results.length > limit;
+  const rows = hasMore ? results.slice(0, limit) : results;
+  const last = rows[rows.length - 1];
+  const nextCursor = hasMore && last ? encodeCursor(last.discovered_at, last.id) : null;
+
+  return { rows, nextCursor };
+}
+
+function encodeCursor(discoveredAt: string, id: string): string {
+  return btoa(JSON.stringify([discoveredAt, id]));
+}
+
+function decodeCursor(cursor: string | undefined): { discoveredAt: string; id: string } | null {
+  if (!cursor) return null;
+  try {
+    const [discoveredAt, id] = JSON.parse(atob(cursor)) as [string, string];
+    if (!discoveredAt || !id) return null;
+    return { discoveredAt, id };
+  } catch {
+    return null;
+  }
+}
+
+export async function listAccounts(db: D1Database): Promise<AccountRow[]> {
+  const { results } = await db.prepare("SELECT * FROM accounts ORDER BY id").all<AccountRow>();
+  return results;
+}
+
+export async function upsertAccount(
+  db: D1Database,
+  handle: string,
+  xUserId: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO accounts (handle, x_user_id) VALUES (?, ?)
+       ON CONFLICT(handle) DO UPDATE SET x_user_id = excluded.x_user_id`,
+    )
+    .bind(handle, xUserId)
+    .run();
+}
+
+export function parseClaims(claims: string | null): string[] {
+  if (!claims) return [];
+  return JSON.parse(claims) as string[];
+}
+
+export function parseCliInvocation(cliInvocation: string | null): Classification["cliInvocation"] | null {
+  if (!cliInvocation) return null;
+  return JSON.parse(cliInvocation) as Classification["cliInvocation"];
+}
+
+export function parseCategory(category: string | null): Category | null {
+  return (category as Category | null) ?? null;
+}

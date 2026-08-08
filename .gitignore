@@ -1,0 +1,14 @@
+node_modules/
+.wrangler/
+dist/
+*.log
+.dev.vars
+worker-configuration.d.ts
+.DS_Store
+
+# Local dev convenience scripts with real hardcoded credentials -- never
+# committed, see relay/README.md for the non-secret equivalent.
+relay/keepalive.sh
+
+.claude/
+lechatmistral

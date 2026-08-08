@@ -1,0 +1,87 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "xapi",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // ListenerAgent — Agents SDK Durable Object, polls X on a self-renewing schedule.
+  // E2bRelayContainer — Cloudflare Container fronting relay/ (see relay/README.md):
+  // the one hop that can speak gRPC to E2B's envd, since Workers' fetch can't.
+  "durable_objects": {
+    "bindings": [
+      { "name": "LISTENER_AGENT", "class_name": "ListenerAgent" },
+      { "name": "E2B_RELAY", "class_name": "E2bRelayContainer" }
+    ]
+  },
+  "containers": [
+    {
+      "class_name": "E2bRelayContainer",
+      "image": "./relay/Dockerfile",
+      "instance_type": "basic",
+      "max_instances": 2
+    }
+  ],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ListenerAgent"] },
+    { "tag": "v2", "new_sqlite_classes": ["E2bRelayContainer"] }
+  ],
+
+  // VerificationWorkflow — one durable run per newly-discovered repo
+  "workflows": [
+    {
+      "name": "verification-workflow",
+      "binding": "VERIFICATION_WORKFLOW",
+      "class_name": "VerificationWorkflow"
+    }
+  ],
+
+  // Catalog
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "xapi-catalog",
+      "database_id": "4912fdcc-3ee9-40cd-8390-1daac63c9b6a",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Evidence bundles (build logs, fixture outputs) + capability-tier fixture inputs
+  "r2_buckets": [
+    { "binding": "EVIDENCE", "bucket_name": "xapi-evidence" }
+  ],
+
+  "queues": {
+    "producers": [
+      { "binding": "RAW_POSTS", "queue": "raw-posts" },
+      { "binding": "VERIFY_REQUESTS", "queue": "verify-requests" }
+    ],
+    "consumers": [
+      {
+        "queue": "raw-posts",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "raw-posts-dlq"
+      },
+      {
+        "queue": "verify-requests",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "verify-requests-dlq"
+      }
+    ]
+  }
+
+  // No explicit `limits.cpu_ms` here -- overriding it requires a paid
+  // Workers plan. If you're on Workers Paid, add:
+  //   "limits": { "cpu_ms": 300000 }
+  // Note this only bounds active CPU time; network I/O, D1/R2 calls, and
+  // sleeps don't count against it either way (see BRIEF.md's Workflows
+  // billing rationale).
+}

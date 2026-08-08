@@ -1,0 +1,12 @@
+# Copy to .dev.vars for local `wrangler dev` (never commit the real file).
+# In production these are set with `wrangler secret put <NAME>`, never here.
+
+# Optional -- leave empty if you haven't purchased X API access.
+# ListenerAgent.poll() no-ops gracefully when this is unset; use
+# POST /admin/verify-repo to feed repos into the pipeline manually instead.
+X_BEARER_TOKEN=
+GITHUB_TOKEN=
+GROQ_API_KEY=
+E2B_API_KEY=
+ADMIN_TOKEN=
+RELAY_SHARED_SECRET=
