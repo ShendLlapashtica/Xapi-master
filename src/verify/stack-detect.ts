@@ -7,7 +7,7 @@ import type { StackDetection } from "../types";
 // deterministically.
 const DETECTORS: Array<{ stack: Exclude<StackDetection, "unsupported">; files: string[] }> = [
   { stack: "node", files: ["package.json"] },
-  { stack: "python", files: ["pyproject.toml", "setup.py", "requirements.txt"] },
+  { stack: "python", files: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile"] },
   { stack: "go", files: ["go.mod"] },
   { stack: "rust", files: ["Cargo.toml"] },
 ];

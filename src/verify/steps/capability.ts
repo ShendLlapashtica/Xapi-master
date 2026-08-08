@@ -16,7 +16,7 @@ const CAPABILITY_TIMEOUT_MS = 3 * 60_000; // per-fixture budget, tighter than sm
 const INSTALL_COMMANDS: Record<Stack, string> = {
   node: "if [ -f package-lock.json ]; then npm ci; else npm install; fi",
   python:
-    "if [ -f pyproject.toml ] || [ -f setup.py ]; then pip install '.[all]' || pip install .; elif [ -f requirements.txt ]; then pip install -r requirements.txt; else echo 'no known python manifest' >&2 && exit 1; fi",
+    "if [ -f pyproject.toml ] || [ -f setup.py ]; then pip install '.[all]' || pip install .; elif [ -f requirements.txt ]; then pip install -r requirements.txt; elif [ -f Pipfile ]; then pip install pipenv && pipenv install --system --skip-lock; else echo 'no known python manifest' >&2 && exit 1; fi",
   go: "go build ./...",
   rust: "cargo build --release",
 };

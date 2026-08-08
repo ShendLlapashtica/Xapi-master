@@ -14,6 +14,10 @@ describe("detectStack", () => {
     expect(detectStack(["requirements.txt", "README.md"])).toBe("python");
   });
 
+  it("detects python from Pipfile", () => {
+    expect(detectStack(["Pipfile", "Pipfile.lock"])).toBe("python");
+  });
+
   it("detects go from go.mod", () => {
     expect(detectStack(["go.mod", "go.sum"])).toBe("go");
   });

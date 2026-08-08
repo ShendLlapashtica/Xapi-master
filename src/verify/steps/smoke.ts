@@ -19,10 +19,16 @@ const SMOKE_TIMEOUT_MS = 5 * 60_000; // 5-minute budget, per BRIEF.md §2
 // back to a bare install when no such extra is defined, mirrors what a
 // real evaluator reading the README would actually run -- it is not
 // specific to either tool.
+// Pipfile (pipenv) branch confirmed live 2026-08-08 against a real repo
+// (Projub/compound_interest_calculator) that ships only a Pipfile -- no
+// requirements.txt/pyproject.toml/setup.py -- which detectStack now also
+// recognizes (see stack-detect.ts). `pipenv install --system` installs
+// straight into the sandbox's interpreter rather than a venv, matching how
+// the other branches install (no venv activation needed downstream).
 const INSTALL_COMMANDS: Record<Stack, string> = {
   node: "if [ -f package-lock.json ]; then npm ci; else npm install; fi && (npm run build --if-present || true)",
   python:
-    "if [ -f pyproject.toml ] || [ -f setup.py ]; then pip install '.[all]' || pip install .; elif [ -f requirements.txt ]; then pip install -r requirements.txt; else echo 'no known python manifest' >&2 && exit 1; fi",
+    "if [ -f pyproject.toml ] || [ -f setup.py ]; then pip install '.[all]' || pip install .; elif [ -f requirements.txt ]; then pip install -r requirements.txt; elif [ -f Pipfile ]; then pip install pipenv && pipenv install --system --skip-lock; else echo 'no known python manifest' >&2 && exit 1; fi",
   go: "go build ./...",
   rust: "cargo build --release",
 };
