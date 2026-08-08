@@ -37,3 +37,4 @@ For each candidate:
 ## Entries
 
 - [2026-08-08 — Benjam1nCup/Polymarket-trading-bot-python-V2](2026-08-08-benjam1ncup-polymarket-trading-bot-python-v2.md) -- 116-star "trading bot" repo, zero source files. Verdict: marketing funnel, not software.
+- [2026-08-08 — 0xalberto/polymarket-arbitrage-bot](2026-08-08-0xalberto-polymarket-arbitrage-bot.md) -- 63-star repo, README claims $500-700/day on a $200 deposit, zero source files, seller's own text admits the strategy lost money at scale. Also the first live proof the category graph (below) works end-to-end.
