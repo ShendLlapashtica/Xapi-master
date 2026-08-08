@@ -1,4 +1,5 @@
 import {
+  getCategoryNode,
   listComponents,
   listSourcePostsForComponent,
   parseCategory,
@@ -54,9 +55,10 @@ export async function handleComponentsRequest(request: Request, env: Env): Promi
 
 async function toComponentSummaryDTO(row: ComponentRow, env: Env): Promise<ComponentSummaryDTO> {
   const prefix = evidencePrefix(row.id);
-  const [sourcePosts, evidenceLinks] = await Promise.all([
+  const [sourcePosts, evidenceLinks, categoryNodeRow] = await Promise.all([
     listSourcePostsForComponent(env.DB, row.id),
     listEvidenceKeys(env.EVIDENCE, prefix),
+    row.category_node_id ? getCategoryNode(env.DB, row.category_node_id) : Promise.resolve(null),
   ]);
 
   return {
@@ -64,6 +66,9 @@ async function toComponentSummaryDTO(row: ComponentRow, env: Env): Promise<Compo
     name: row.name,
     repo: { owner: row.repo_owner, name: row.repo_name, url: row.repo_url },
     category: parseCategory(row.category),
+    categoryNode: categoryNodeRow
+      ? { id: categoryNodeRow.id, name: categoryNodeRow.name, parentId: categoryNodeRow.parent_id }
+      : null,
     claims: parseClaims(row.claims),
     mechanismSummary: row.mechanism_summary,
     tierReached: row.tier_reached,

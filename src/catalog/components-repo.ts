@@ -1,6 +1,7 @@
 import type {
   AccountRow,
   Category,
+  CategoryRow,
   Classification,
   ComponentRow,
   ComponentStatus,
@@ -94,20 +95,54 @@ export async function updateComponentClassification(
   db: D1Database,
   id: string,
   classification: Classification,
+  categoryNodeId: string | null = null,
 ): Promise<void> {
   await db
     .prepare(
-      `UPDATE components SET category = ?, claims = ?, mechanism_summary = ?, cli_invocation = ?
+      `UPDATE components SET category = ?, category_node_id = ?, claims = ?, mechanism_summary = ?, cli_invocation = ?
        WHERE id = ?`,
     )
     .bind(
       classification.category,
+      categoryNodeId,
       JSON.stringify(classification.claims),
       classification.mechanismSummary,
       JSON.stringify(classification.cliInvocation),
       id,
     )
     .run();
+}
+
+// Category graph ("subclades"): a self-referential node tree, open-ended
+// (LLM-suggested names via Classification.suggestedCategory) rather than
+// the fixed CATEGORIES enum -- see types.ts's "Category graph" comment.
+// Check-then-insert, same dedupe approach as findComponentByRepo/
+// insertDiscoveredComponent elsewhere in this file -- not race-proof under
+// concurrent writers, an acceptable gap at this scale (one workflow run at
+// a time in practice).
+export async function findOrCreateCategoryNode(
+  db: D1Database,
+  name: string,
+  parentId: string | null = null,
+): Promise<string> {
+  const normalized = name.trim();
+  const existing = await db
+    .prepare("SELECT id FROM categories WHERE name = ? AND parent_id IS ?")
+    .bind(normalized, parentId)
+    .first<{ id: string }>();
+  if (existing) return existing.id;
+
+  const id = crypto.randomUUID();
+  await db
+    .prepare("INSERT INTO categories (id, name, parent_id) VALUES (?, ?, ?)")
+    .bind(id, normalized, parentId)
+    .run();
+  return id;
+}
+
+export async function getCategoryNode(db: D1Database, id: string): Promise<CategoryRow | null> {
+  const row = await db.prepare("SELECT * FROM categories WHERE id = ?").bind(id).first<CategoryRow>();
+  return row ?? null;
 }
 
 // Sets status (and the tier it implies) for a tier's outcome. `terminal`

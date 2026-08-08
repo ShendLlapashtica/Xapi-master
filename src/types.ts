@@ -38,6 +38,24 @@ export type Category = (typeof CATEGORIES)[number];
 // Only this category has a real capability-tier fixture harness in the PoC.
 export const CAPABILITY_TIER_CATEGORY: Category = "document-parsing-conversion";
 
+// --- Category graph ("subclades") ---
+//
+// Open-ended and hierarchical, additive alongside the fixed `Category` enum
+// above (which stays exactly as-is -- it gates the capability tier via
+// CAPABILITY_TIER_CATEGORY and changing what it can contain would change
+// that gate). Built from the classify tier's `suggestedCategory` field: an
+// LLM-suggested name, not constrained to the fixed list, so a domain the
+// enum was never scoped for (e.g. a trading bot) gets a real node instead
+// of being force-fit into "other" or "orchestration". `parent_id` is ready
+// for nesting (subclades) but nothing currently assigns it -- new nodes
+// land at the top level until a curation/nesting step exists.
+export interface CategoryRow {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  created_at: string;
+}
+
 export type Stack = "node" | "python" | "go" | "rust";
 export type StackDetection = Stack | "unsupported";
 
@@ -73,6 +91,9 @@ export interface CliInvocation {
 
 export interface Classification {
   category: Category;
+  // Open-ended companion to `category` above -- see "Category graph" --
+  // an LLM-suggested name not limited to the fixed CATEGORIES list.
+  suggestedCategory: string;
   claims: string[];
   mechanismSummary: string;
   cliInvocation: CliInvocation;
@@ -132,6 +153,7 @@ export interface ComponentRow {
   repo_name: string;
   repo_url: string;
   category: Category | null;
+  category_node_id: string | null;
   claims: string | null; // JSON-encoded string[]
   mechanism_summary: string | null;
   cli_invocation: string | null; // JSON-encoded CliInvocation
@@ -166,6 +188,7 @@ export interface ComponentSummaryDTO {
   name: string;
   repo: { owner: string; name: string; url: string };
   category: Category | null;
+  categoryNode: { id: string; name: string; parentId: string | null } | null;
   claims: string[];
   mechanismSummary: string | null;
   tierReached: TierReached;

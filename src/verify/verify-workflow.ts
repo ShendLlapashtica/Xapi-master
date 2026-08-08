@@ -2,6 +2,7 @@ import { WorkflowEntrypoint } from "cloudflare:workers";
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import {
+  findOrCreateCategoryNode,
   getComponent,
   parseCliInvocation,
   updateComponentClassification,
@@ -98,10 +99,22 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
             contentType: "application/json",
           },
         ]);
-        await updateComponentClassification(this.env.DB, componentId, {
-          ...classifyResult.classification,
-          rawResponseEvidenceKey: evidenceKey(componentId, "classify", "response.json"),
-        });
+        // Top-level for now (parentId null) -- nesting into subclades is a
+        // curation step that doesn't exist yet, see types.ts's "Category
+        // graph" comment.
+        const categoryNodeId = await findOrCreateCategoryNode(
+          this.env.DB,
+          classifyResult.classification.suggestedCategory,
+        );
+        await updateComponentClassification(
+          this.env.DB,
+          componentId,
+          {
+            ...classifyResult.classification,
+            rawResponseEvidenceKey: evidenceKey(componentId, "classify", "response.json"),
+          },
+          categoryNodeId,
+        );
       });
 
       category = classifyResult.classification.category;

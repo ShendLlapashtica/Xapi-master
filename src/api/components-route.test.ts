@@ -32,6 +32,7 @@ async function seedComponent(id: string, overrides: { category?: string; status?
   if (overrides.category) {
     await updateComponentClassification(testEnv.DB, id, {
       category: overrides.category as never,
+      suggestedCategory: overrides.category,
       claims: ["does a thing"],
       mechanismSummary: "wraps a library",
       cliInvocation: { command: "x {input}", outputMode: "stdout", outputPathTemplate: null },

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetSchema } from "../../test/helpers/apply-schema";
 import {
   findComponentByRepo,
+  findOrCreateCategoryNode,
+  getCategoryNode,
   getComponent,
   insertDiscoveredComponent,
   insertSourcePost,
@@ -87,16 +89,38 @@ describe("components-repo", () => {
     });
     const classification: Classification = {
       category: "document-parsing-conversion",
+      suggestedCategory: "pdf-conversion",
       claims: ["converts PDFs to markdown"],
       mechanismSummary: "wraps pdfminer",
       cliInvocation: { command: "docparse {input}", outputMode: "stdout", outputPathTemplate: null },
       rawResponseEvidenceKey: "evidence/c1/classify/response.json",
     };
-    await updateComponentClassification(env.DB, "c1", classification);
+    const categoryNodeId = await findOrCreateCategoryNode(env.DB, classification.suggestedCategory);
+    await updateComponentClassification(env.DB, "c1", classification, categoryNodeId);
 
     const row = await getComponent(env.DB, "c1");
     expect(row?.category).toBe("document-parsing-conversion");
+    expect(row?.category_node_id).toBe(categoryNodeId);
     expect(JSON.parse(row?.claims ?? "[]")).toEqual(["converts PDFs to markdown"]);
+  });
+
+  it("finds or creates category nodes, deduping by (name, parent)", async () => {
+    const first = await findOrCreateCategoryNode(env.DB, "crypto-trading-bot");
+    const second = await findOrCreateCategoryNode(env.DB, "crypto-trading-bot");
+    expect(second).toBe(first);
+
+    const node = await getCategoryNode(env.DB, first);
+    expect(node?.name).toBe("crypto-trading-bot");
+    expect(node?.parent_id).toBeNull();
+
+    const child = await findOrCreateCategoryNode(env.DB, "arbitrage", first);
+    expect(child).not.toBe(first);
+    const childNode = await getCategoryNode(env.DB, child);
+    expect(childNode?.parent_id).toBe(first);
+
+    // Same name, different parent -- a distinct node, not a dedupe match.
+    const sameNameDifferentParent = await findOrCreateCategoryNode(env.DB, "arbitrage");
+    expect(sameNameDifferentParent).not.toBe(child);
   });
 
   it("updates status/tier and stamps verified_at only when terminal", async () => {
@@ -135,6 +159,7 @@ describe("components-repo", () => {
     });
     await updateComponentClassification(env.DB, "c2", {
       category: "ocr",
+      suggestedCategory: "ocr",
       claims: [],
       mechanismSummary: "",
       cliInvocation: { command: "x", outputMode: "stdout", outputPathTemplate: null },

@@ -8,6 +8,7 @@ const MAX_ATTEMPTS = 2; // one retry on a transport/parse hiccup
 
 const ClassificationSchema = z.object({
   category: z.enum(CATEGORIES),
+  suggestedCategory: z.string().min(1),
   claims: z.array(z.string()),
   mechanismSummary: z.string(),
   cliInvocation: z.object({
@@ -26,6 +27,7 @@ const CLASSIFICATION_JSON_SCHEMA = {
   type: "object",
   properties: {
     category: { type: "string", enum: [...CATEGORIES] },
+    suggestedCategory: { type: "string" },
     claims: { type: "array", items: { type: "string" } },
     mechanismSummary: { type: "string" },
     cliInvocation: {
@@ -39,7 +41,7 @@ const CLASSIFICATION_JSON_SCHEMA = {
       additionalProperties: false,
     },
   },
-  required: ["category", "claims", "mechanismSummary", "cliInvocation"],
+  required: ["category", "suggestedCategory", "claims", "mechanismSummary", "cliInvocation"],
   additionalProperties: false,
 } as const;
 
@@ -99,7 +101,8 @@ function buildPrompt(readmeText: string): string {
   return `You are classifying an open-source repository from its README for a component catalog.
 
 Read the README below and extract:
-- category: the single best-fitting category for this tool
+- category: the single best-fitting category for this tool, chosen only from this fixed list: ${CATEGORIES.join(", ")}. Pick "other" if none genuinely fit -- do not stretch a category to cover a tool it wasn't meant for.
+- suggestedCategory: a short, open category name for this tool that isn't limited to the list above -- describe what it actually is (e.g. "crypto-trading-bot", "prediction-market-arbitrage", "pdf-conversion"). This is used to build a browsable category tree, so prefer the specific term someone searching by topic would use over a vague one.
 - claims: a short list of what the tool claims to do
 - mechanismSummary: a plain-language summary of how it works
 - cliInvocation.command: the verbatim usage/CLI example from the README's Quick Start section, using {input} and {output} as placeholders for file paths

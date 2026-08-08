@@ -11,6 +11,7 @@ function groqResponse(content: string, status = 200): Response {
 
 const VALID_CLASSIFICATION = {
   category: "document-parsing-conversion",
+  suggestedCategory: "pdf-conversion",
   claims: ["converts PDFs to markdown"],
   mechanismSummary: "wraps pdfminer and a layout model",
   cliInvocation: {
@@ -28,6 +29,7 @@ describe("classifyReadme", () => {
       fetchImpl,
     });
     expect(result.classification.category).toBe("document-parsing-conversion");
+    expect(result.classification.suggestedCategory).toBe("pdf-conversion");
     expect(result.classification.cliInvocation.command).toBe("docparse convert {input} -o {output}");
   });
 
