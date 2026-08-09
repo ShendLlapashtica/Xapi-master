@@ -87,7 +87,12 @@ async function postWorkflowResult(step: WorkflowStep, db: D1Database, env: Env, 
       return !oldest || new Date(current.posted_at) < new Date(oldest.posted_at) ? current : oldest;
     }, null as SourcePostRow | null);
 
-    const tweetId = originalPost?.post_id;
+    if (!originalPost || originalPost.post_url === "manual-trigger" || originalPost.post_id.startsWith("manual-")) {
+      console.log(`[X Bot] Skipping X post: component ${componentId} was triggered manually.`);
+      return;
+    }
+
+    const tweetId = originalPost.post_id;
     const text = formatTweetText(finalComponent);
 
     if (env.X_SESSION_TOKEN) {
