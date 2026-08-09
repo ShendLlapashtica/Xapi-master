@@ -64,6 +64,46 @@ of the real workload, this specific version does not deliver on that
 claim -- confirmed by running it, not inferred from stars or README
 tone.
 
+## Root cause, traced into the real source (not speculation)
+
+`anydoc`'s own PDF handler (`src/formats/pdf.rs`) is a thin wrapper --
+it calls `pdf_inspector::process_pdf_mem(bytes)` (a separate Firecrawl
+crate, `firecrawl/pdf-inspector`, 13.8k stars) and returns whatever
+Markdown comes back. The multi-column bug is not in anydoc's own code.
+
+`pdf-inspector` genuinely has real, non-naive column detection
+(`src/extractor/layout.rs`'s `detect_columns()`): a horizontal
+occupancy-histogram/gutter-detection algorithm, plus a separate
+evidence-gated region-graph fallback for image-heavy pages
+(`reading_order.rs`). This is legitimate document-layout-analysis
+engineering, not a stub.
+
+The likely culprit is a specific early-return guard in `detect_columns()`:
+
+```rust
+if page_items.len() < 20 {
+    return vec![ColumnRegion { x_min, x_max }];  // whole page = one column
+}
+```
+
+Any page with fewer than 20 detected text items skips column-splitting
+entirely and is treated as a single full-width column. The downstream
+logic then groups text into rows by Y-position and sorts left-to-right
+*within* that single region -- on a genuinely two-column page, that
+means it pulls items from both real columns at the same vertical
+position and merges them left-to-right, which is exactly the
+interleaving pattern observed. The test fixture is a short, single-page
+document -- plausibly under this 20-item threshold.
+
+**Proposed fix**: the guard conflates "short page" with "no column
+evidence." A page can be short and still show a clear bimodal
+X-distribution with a real gutter -- that's still evidence of columns.
+Replace the flat item-count threshold with a check on whether the
+occupancy histogram shows a genuine valley (the same evidence the
+function already computes for longer pages), and only fall back to
+single-column when that evidence is actually absent, not merely because
+the page is short.
+
 ## Why this is the important lesson, not just this one tool
 
 This is exactly the gap the earlier entry's process note flagged and
