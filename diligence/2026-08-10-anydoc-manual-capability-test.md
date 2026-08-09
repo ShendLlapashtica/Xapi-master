@@ -1,0 +1,80 @@
+# firecrawl/anydoc, actually run -- correcting the earlier verdict
+
+The first diligence entry tonight (`2026-08-09-batch-diverse-categories.md`)
+verified `anydoc` at the classify tier only -- smoke never ran because it's
+Rust and this pipeline's E2B sandbox has no Rust template yet. The
+verdict at the time was "legitimate, real tool, worth the recommendation
+Lundrimi gave it -- but currently only 'claims independently extracted,'
+not 'independently proven to run.'" That caveat was honest, but the
+client's actual question -- "how does it hold up, what does it exactly
+do" -- needed the tool actually run, not just read.
+
+Ran it directly (`npx @firecrawl/anydoc`, real published npm package, MIT
+license) against the project's own capability-tier fixture set --
+`fixtures/text-native.pdf`, `fixtures/multi-column.pdf`,
+`fixtures/scanned-image.pdf`, `fixtures/sample.docx`,
+`fixtures/page.html` -- the same five test files the pipeline's capability
+tier uses for every document-parsing tool that gets this deep a check.
+
+## Results, verbatim behavior
+
+**`text-native.pdf` -- correct.** Clean Markdown, heading detected as a
+heading (`#`), paragraph breaks preserved, no garbling.
+
+**`multi-column.pdf` -- fails, and this matters.** The tool's own README
+claims: *"preserve reading order across columns... a naive extractor
+reads left to right across the full page width, which interleaves
+unrelated sentences from adjacent columns into a single garbled line. A
+competent one detects the column boundaries first."* The actual output
+on this exact test file *is* the naive-extractor failure mode it
+describes and claims to avoid -- sentences from the left and right
+columns interleaved line-by-line into garbled text. Verbatim first line
+of output: *"Paper documents have carried information for centuries,
+Scanned pages present a harder problem than native but the last three
+decades have pushed most of that text, because there is no embedded
+character data to record into digital form..."* -- that's two unrelated
+sentences from two different columns spliced mid-thought. This is the
+tool's stated core differentiator, and it does not hold up.
+
+**`scanned-image.pdf` -- honest decline, not a failure.** Exact output:
+`anydoc: unsupported input: PDF has no extractable text (Scanned, 1
+pages): OCR is required`. No crash, no fabricated output, no silent
+wrong answer -- it correctly identifies what it can't do and says so.
+Worth crediting distinctly from the column failure above: declining
+honestly is a real, positive signal about error-handling quality, not
+the same category of problem as silently producing wrong output.
+
+**`sample.docx` -- correct.** Same clean result as the native PDF.
+
+**`page.html` -- honest decline, not a contradiction.** `anydoc:
+unsupported input: unrecognized file content and extension`. HTML was
+never in anydoc's claimed format list (Word/PowerPoint/Excel/
+OpenDocument/RTF/EPUB/CSV/PDF) -- this is an out-of-scope input for this
+specific fixture set, not a broken claim.
+
+## Corrected verdict
+
+Not a blanket "holds up." **Solid on native-text formats (PDF, DOCX),
+fails on its own headline differentiator (multi-column layout
+detection), honest rather than deceptive on what it can't do (scanned
+OCR, HTML).** For the client's actual question: if the use case is
+straightforward text-native documents, anydoc is genuinely good. If
+multi-column layouts (the exact case its marketing leads with) are part
+of the real workload, this specific version does not deliver on that
+claim -- confirmed by running it, not inferred from stars or README
+tone.
+
+## Why this is the important lesson, not just this one tool
+
+This is exactly the gap the earlier entry's process note flagged and
+this correction closes: `smoke:pass`/classify-only verification proves
+"real, installable code, claims independently extracted" -- it does not
+prove the claims are true. anydoc *would* have passed smoke cleanly if
+Rust were supported (it's real, well-built, well-tested software) --
+and smoke passing would have said nothing about whether multi-column
+extraction actually works, because smoke never runs the tool against
+real input. This is the concrete case that makes the argument for
+capability-tier testing (or a manual equivalent, as here) beyond
+document-parsing-conversion worth the effort: the gap between "installs
+cleanly" and "does what it claims" is not hypothetical, it's this
+exact result.
