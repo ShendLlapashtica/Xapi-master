@@ -7,6 +7,7 @@ import {
   findOrCreateCategoryNode,
   getComponent,
   listSourcePostsForComponent,
+  listTopLevelCategories,
   parseCliInvocation,
   setReadmeFingerprint,
   updateComponentClassification,
@@ -207,6 +208,13 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
         category = duplicate.category as Category | null;
         cliInvocation = parseCliInvocation(duplicate.cli_invocation);
       } else {
+        // Fetched fresh each run rather than cached -- the clade list
+        // changes as the catalog grows, and a stale list would just bias
+        // the model toward clades that existed at some earlier point.
+        const existingClades = await step.do("classify-list-clades", async () =>
+          listTopLevelCategories(this.env.DB),
+        );
+
         const classifyResult = await step.do(
           "classify-llm",
           // Groq's free tier shares an 8000 tokens/minute budget across every
@@ -215,7 +223,7 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
           // generous backoff (up to ~4 minutes total) matters more here than
           // it would against a paid-tier or per-request-limited API.
           { retries: { limit: 5, delay: "15 seconds", backoff: "exponential" } },
-          async () => classifyReadme(readmeText, { apiKey: this.env.GROQ_API_KEY }),
+          async () => classifyReadme(readmeText, { apiKey: this.env.GROQ_API_KEY }, existingClades),
         );
 
         await step.do("classify-persist", async () => {
@@ -227,12 +235,18 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
               contentType: "application/json",
             },
           ]);
-          // Top-level for now (parentId null) -- nesting into subclades is a
-          // curation step that doesn't exist yet, see types.ts's "Category
-          // graph" comment.
+          // Two-level: resolve/create the parent clade first (top-level,
+          // parentId null), then the specific leaf under it -- the actual
+          // subclade nesting. findOrCreateCategoryNode's check-then-insert
+          // dedupes both levels the same way.
+          const parentId = await findOrCreateCategoryNode(
+            this.env.DB,
+            classifyResult.classification.suggestedParentClade,
+          );
           const categoryNodeId = await findOrCreateCategoryNode(
             this.env.DB,
             classifyResult.classification.suggestedCategory,
+            parentId,
           );
           await updateComponentClassification(
             this.env.DB,

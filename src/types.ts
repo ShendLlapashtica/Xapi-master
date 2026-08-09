@@ -94,6 +94,10 @@ export interface Classification {
   // Open-ended companion to `category` above -- see "Category graph" --
   // an LLM-suggested name not limited to the fixed CATEGORIES list.
   suggestedCategory: string;
+  // Which existing top-level clade `suggestedCategory` nests under (or a
+  // new one to create if none fit) -- the subclade hierarchy. See
+  // groq-client.ts's prompt for how the existing-clade list is supplied.
+  suggestedParentClade: string;
   claims: string[];
   mechanismSummary: string;
   cliInvocation: CliInvocation;

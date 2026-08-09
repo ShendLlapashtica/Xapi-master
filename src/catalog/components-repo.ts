@@ -140,6 +140,18 @@ export async function findOrCreateCategoryNode(
   return id;
 }
 
+// Existing top-level clades, for the classify prompt to place a new leaf
+// under (or decide none fit and propose a new one) -- see groq-client.ts's
+// `suggestedParentClade` field. Capped at 30: a prompt-context list, not a
+// full tree dump, and the clade count is expected to stay small relative
+// to leaf categories.
+export async function listTopLevelCategories(db: D1Database): Promise<string[]> {
+  const { results } = await db
+    .prepare("SELECT name FROM categories WHERE parent_id IS NULL ORDER BY name LIMIT 30")
+    .all<{ name: string }>();
+  return results.map((r) => r.name);
+}
+
 export async function getCategoryNode(db: D1Database, id: string): Promise<CategoryRow | null> {
   const row = await db.prepare("SELECT * FROM categories WHERE id = ?").bind(id).first<CategoryRow>();
   return row ?? null;

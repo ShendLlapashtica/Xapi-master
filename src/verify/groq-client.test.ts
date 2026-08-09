@@ -12,6 +12,7 @@ function groqResponse(content: string, status = 200): Response {
 const VALID_CLASSIFICATION = {
   category: "document-parsing-conversion",
   suggestedCategory: "pdf-conversion",
+  suggestedParentClade: "document-knowledge-tools",
   claims: ["converts PDFs to markdown"],
   mechanismSummary: "wraps pdfminer and a layout model",
   cliInvocation: {
@@ -31,6 +32,32 @@ describe("classifyReadme", () => {
     expect(result.classification.category).toBe("document-parsing-conversion");
     expect(result.classification.suggestedCategory).toBe("pdf-conversion");
     expect(result.classification.cliInvocation.command).toBe("docparse convert {input} -o {output}");
+  });
+
+  it("includes existing clades in the prompt so the model can reuse one", async () => {
+    const fetchImpl = sequenceFetch([groqResponse(JSON.stringify(VALID_CLASSIFICATION))]);
+    await classifyReadme("readme text", { apiKey: "k", fetchImpl }, ["ai-agent-tooling", "saas-starters"]);
+
+    const [, initArg] = (fetchImpl as ReturnType<typeof import("vitest").vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    const body = JSON.parse(initArg.body as string);
+    const promptContent = body.messages[0].content as string;
+    expect(promptContent).toContain("ai-agent-tooling, saas-starters");
+  });
+
+  it("tells the model no clades exist yet when the list is empty", async () => {
+    const fetchImpl = sequenceFetch([groqResponse(JSON.stringify(VALID_CLASSIFICATION))]);
+    await classifyReadme("readme text", { apiKey: "k", fetchImpl });
+
+    const [, initArg] = (fetchImpl as ReturnType<typeof import("vitest").vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    const body = JSON.parse(initArg.body as string);
+    const promptContent = body.messages[0].content as string;
+    expect(promptContent).toContain("none yet");
   });
 
   it("sends the request with json_schema structured outputs and bearer auth", async () => {

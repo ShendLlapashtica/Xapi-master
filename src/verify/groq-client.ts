@@ -9,6 +9,7 @@ const MAX_ATTEMPTS = 2; // one retry on a transport/parse hiccup
 const ClassificationSchema = z.object({
   category: z.enum(CATEGORIES),
   suggestedCategory: z.string().min(1),
+  suggestedParentClade: z.string().min(1),
   claims: z.array(z.string()),
   mechanismSummary: z.string(),
   cliInvocation: z.object({
@@ -28,6 +29,7 @@ const CLASSIFICATION_JSON_SCHEMA = {
   properties: {
     category: { type: "string", enum: [...CATEGORIES] },
     suggestedCategory: { type: "string" },
+    suggestedParentClade: { type: "string" },
     claims: { type: "array", items: { type: "string" } },
     mechanismSummary: { type: "string" },
     cliInvocation: {
@@ -41,7 +43,14 @@ const CLASSIFICATION_JSON_SCHEMA = {
       additionalProperties: false,
     },
   },
-  required: ["category", "suggestedCategory", "claims", "mechanismSummary", "cliInvocation"],
+  required: [
+    "category",
+    "suggestedCategory",
+    "suggestedParentClade",
+    "claims",
+    "mechanismSummary",
+    "cliInvocation",
+  ],
   additionalProperties: false,
 } as const;
 
@@ -75,8 +84,9 @@ export interface ClassifyReadmeResult {
 export async function classifyReadme(
   readmeText: string,
   options: GroqClientOptions,
+  existingClades: string[] = [],
 ): Promise<ClassifyReadmeResult> {
-  const messages: GroqMessage[] = [{ role: "user", content: buildPrompt(readmeText) }];
+  const messages: GroqMessage[] = [{ role: "user", content: buildPrompt(readmeText, existingClades) }];
   let lastRawText = "";
   let lastError: unknown;
 
@@ -97,12 +107,18 @@ export async function classifyReadme(
   );
 }
 
-function buildPrompt(readmeText: string): string {
+function buildPrompt(readmeText: string, existingClades: string[]): string {
+  const cladeList =
+    existingClades.length > 0
+      ? existingClades.join(", ")
+      : "(none yet -- this may be the first repo classified)";
+
   return `You are classifying an open-source repository from its README for a component catalog.
 
 Read the README below and extract:
 - category: the single best-fitting category for this tool, chosen only from this fixed list: ${CATEGORIES.join(", ")}. Pick "other" if none genuinely fit -- do not stretch a category to cover a tool it wasn't meant for.
-- suggestedCategory: a short, open category name for this tool that isn't limited to the list above -- describe what it actually is (e.g. "crypto-trading-bot", "prediction-market-arbitrage", "pdf-conversion"). This is used to build a browsable category tree, so prefer the specific term someone searching by topic would use over a vague one.
+- suggestedCategory: a short, open, *specific* category name for this tool that isn't limited to the list above -- describe what it actually is (e.g. "crypto-trading-bot", "prediction-market-arbitrage", "pdf-conversion"). This is used to build a browsable category tree, so prefer the specific term someone searching by topic would use over a vague one.
+- suggestedParentClade: which broad top-level group suggestedCategory belongs under. Existing top-level clades: ${cladeList}. If one of these genuinely fits the tool's domain, reuse that exact name verbatim. Only propose a new clade name if none of the existing ones fit -- prefer reusing an existing clade over creating a near-duplicate of one that already covers the same ground.
 - claims: a short list of what the tool claims to do
 - mechanismSummary: a plain-language summary of how it works
 - cliInvocation.command: the verbatim usage/CLI example from the README's Quick Start section, using {input} and {output} as placeholders for file paths

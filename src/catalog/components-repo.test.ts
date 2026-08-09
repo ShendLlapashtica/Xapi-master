@@ -93,6 +93,7 @@ describe("components-repo", () => {
     const classification: Classification = {
       category: "document-parsing-conversion",
       suggestedCategory: "pdf-conversion",
+      suggestedParentClade: "document-knowledge-tools",
       claims: ["converts PDFs to markdown"],
       mechanismSummary: "wraps pdfminer",
       cliInvocation: { command: "docparse {input}", outputMode: "stdout", outputPathTemplate: null },
@@ -163,6 +164,7 @@ describe("components-repo", () => {
     await updateComponentClassification(env.DB, "c2", {
       category: "ocr",
       suggestedCategory: "ocr",
+      suggestedParentClade: "document-knowledge-tools",
       claims: [],
       mechanismSummary: "",
       cliInvocation: { command: "x", outputMode: "stdout", outputPathTemplate: null },
@@ -232,6 +234,7 @@ describe("components-repo", () => {
     const classification: Classification = {
       category: "other",
       suggestedCategory: "crypto-trading-bot",
+      suggestedParentClade: "money-bait-patterns",
       claims: ["makes money"],
       mechanismSummary: "trades things",
       cliInvocation: { command: "", outputMode: "stdout", outputPathTemplate: null },
@@ -267,6 +270,7 @@ describe("components-repo", () => {
     const classification: Classification = {
       category: "other",
       suggestedCategory: "crypto-trading-bot",
+      suggestedParentClade: "money-bait-patterns",
       claims: ["makes money fast"],
       mechanismSummary: "trades things",
       cliInvocation: { command: "", outputMode: "stdout", outputPathTemplate: null },
