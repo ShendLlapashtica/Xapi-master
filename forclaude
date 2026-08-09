@@ -1,0 +1,24 @@
+# Instructions for Claude / Main Developer
+
+We have implemented and deployed X posting integration to the pipeline, along with the safety guard to skip manually-triggered components.
+
+To make X posting work in production, you need to perform the following:
+
+## 1. Set the X Session Token Secret
+The X client requires a session token cookie string encoded via `rettiwt-api`'s AuthService. Run this to encode and set the secret:
+
+```bash
+# Get cookie string (auth_token=...; ct0=...; twid=...) from browser
+node -e "const { AuthService } = require('rettiwt-api'); console.log(AuthService.encodeCookie('YOUR_COOKIE_STRING'));"
+
+# Take the encoded token and set it in Wrangler:
+npx wrangler secret put X_SESSION_TOKEN
+```
+
+## 2. Test X Posting
+Once the secret is set, any organic run through the listener -> extract -> verify-workflow pipeline that reaches a terminal status will post a reply back to X.
+
+To test this manually with a simulated tweet without relying on organic polling:
+1. Insert a mock component and a mock source post in the D1 database representing a real tweet ID you want to reply to.
+2. Run the `verification-workflow` on it.
+3. The workflow will read the post ID and call the X client to reply to it.
