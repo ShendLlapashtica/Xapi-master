@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetSchema } from "../../test/helpers/apply-schema";
 import {
   copyClassificationFromDuplicate,
+  createEdge,
   findComponentByReadmeFingerprint,
   findComponentByRepo,
   findOrCreateCategoryNode,
   getCategoryNode,
   getComponent,
+  getEdgesForComponent,
   insertDiscoveredComponent,
   insertSourcePost,
   listComponents,
@@ -288,5 +290,55 @@ describe("components-repo", () => {
     expect(copy?.category_node_id).toBe(categoryNodeId);
     expect(JSON.parse(copy?.claims ?? "[]")).toEqual(["makes money fast"]);
     expect(copy?.duplicate_of_component_id).toBe("c1");
+  });
+
+  describe("component edges (persisted graph relationships)", () => {
+    beforeEach(async () => {
+      await insertDiscoveredComponent(env.DB, {
+        id: "c1",
+        name: "a",
+        repoOwner: "acme",
+        repoName: "a",
+        repoUrl: "https://github.com/acme/a",
+        evidencePrefix: "evidence/c1/",
+      });
+      await insertDiscoveredComponent(env.DB, {
+        id: "c2",
+        name: "b",
+        repoOwner: "acme",
+        repoName: "b",
+        repoUrl: "https://github.com/acme/b",
+        evidencePrefix: "evidence/c2/",
+      });
+    });
+
+    it("persists an edge and finds it from either endpoint", async () => {
+      await createEdge(env.DB, "c1", "c2", 0.91);
+
+      const fromC1 = await getEdgesForComponent(env.DB, "c1");
+      expect(fromC1).toHaveLength(1);
+      expect(fromC1[0]?.to_component_id).toBe("c2");
+      expect(fromC1[0]?.score).toBeCloseTo(0.91);
+
+      // Directional in storage, but a real relationship -- findable from
+      // the other side too, not just the direction it was written from.
+      const fromC2 = await getEdgesForComponent(env.DB, "c2");
+      expect(fromC2).toHaveLength(1);
+      expect(fromC2[0]?.from_component_id).toBe("c1");
+    });
+
+    it("updates the score on a repeat edge instead of duplicating it", async () => {
+      await createEdge(env.DB, "c1", "c2", 0.8);
+      await createEdge(env.DB, "c1", "c2", 0.95);
+
+      const edges = await getEdgesForComponent(env.DB, "c1");
+      expect(edges).toHaveLength(1);
+      expect(edges[0]?.score).toBeCloseTo(0.95);
+    });
+
+    it("returns no edges for a component with none", async () => {
+      const edges = await getEdgesForComponent(env.DB, "c1");
+      expect(edges).toEqual([]);
+    });
   });
 });

@@ -171,6 +171,18 @@ export interface ComponentRow {
   commit_sha_checked: string | null;
 }
 
+// Persisted graph edges -- see components-repo.ts's createEdge/
+// getEdgesForComponent. Directional in storage, conceptually symmetric for
+// "similar_to".
+export interface ComponentEdgeRow {
+  id: string;
+  from_component_id: string;
+  to_component_id: string;
+  relationship_type: string;
+  score: number;
+  created_at: string;
+}
+
 export interface SourcePostRow {
   id: number;
   component_id: string;

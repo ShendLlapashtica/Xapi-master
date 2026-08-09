@@ -2,7 +2,8 @@
 // than D1Database.exec() (which has stricter single-line-statement,
 // no-comment constraints) so local test runs don't depend on that parser.
 // Keep this in sync with migrations/0001_init.sql, 0002_category_graph.sql,
-// 0003_readme_fingerprint.sql, and 0004_x_user_id_optional.sql.
+// 0003_readme_fingerprint.sql, 0004_x_user_id_optional.sql, and
+// 0005_component_edges.sql.
 const STATEMENTS: string[] = [
   `CREATE TABLE accounts (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,6 +51,17 @@ const STATEMENTS: string[] = [
     UNIQUE (component_id, post_id)
   )`,
   `CREATE INDEX idx_source_posts_component ON source_posts(component_id)`,
+  `CREATE TABLE component_edges (
+    id                TEXT PRIMARY KEY,
+    from_component_id TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    to_component_id   TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    relationship_type TEXT NOT NULL DEFAULT 'similar_to',
+    score             REAL NOT NULL,
+    created_at        TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    UNIQUE (from_component_id, to_component_id, relationship_type)
+  )`,
+  `CREATE INDEX idx_component_edges_from ON component_edges(from_component_id)`,
+  `CREATE INDEX idx_component_edges_to ON component_edges(to_component_id)`,
 ];
 
 export async function applySchema(db: D1Database): Promise<void> {
@@ -59,6 +71,7 @@ export async function applySchema(db: D1Database): Promise<void> {
 }
 
 export async function resetSchema(db: D1Database): Promise<void> {
+  await db.prepare("DROP TABLE IF EXISTS component_edges").run();
   await db.prepare("DROP TABLE IF EXISTS source_posts").run();
   await db.prepare("DROP TABLE IF EXISTS components").run();
   await db.prepare("DROP TABLE IF EXISTS categories").run();

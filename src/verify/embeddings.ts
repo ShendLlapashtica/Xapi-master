@@ -33,9 +33,16 @@ export interface SimilarityMatch {
 // Excludes the component being classified (Vectorize will happily return a
 // self-match once this component's own vector is upserted) and applies the
 // threshold here rather than trusting a caller-supplied topK to already be
-// relevant -- 0.85 on bge-base cosine similarity is "same domain and
-// mechanism," not "same wording," based on this project's own claims text.
-const SIMILARITY_THRESHOLD = 0.85;
+// relevant. Calibrated 2026-08-09 against real data, not guessed twice:
+// the initial 0.85 guess turned out too strict -- a genuinely related pair
+// (hanshaze/Awesome-Prediction-Market-Trading-Tools vs
+// roshinibyraj-alt/polymarket-btc-5m-bot, both short-interval crypto
+// trading tools) scored 0.8298 and would have been missed. Other
+// same-clade-but-different-tool pairs in the same query topped out at
+// 0.75, so 0.80 separates "same mechanism" from "same neighborhood"
+// cleanly on the one real data point available -- revisit as more
+// examples accumulate, this is one calibration point, not a settled law.
+const SIMILARITY_THRESHOLD = 0.8;
 
 export function filterRelevantMatches(
   matches: VectorizeMatches["matches"],

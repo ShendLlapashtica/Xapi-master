@@ -3,6 +3,7 @@ import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import {
   copyClassificationFromDuplicate,
+  createEdge,
   findComponentByReadmeFingerprint,
   findOrCreateCategoryNode,
   getComponent,
@@ -299,6 +300,13 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
                 contentType: "application/json",
               },
             ]);
+            // The actual graph edge -- persisted, not just logged. This is
+            // what makes "what's connected to this component" a real query
+            // (getEdgesForComponent) instead of something only true at the
+            // moment this check ran.
+            for (const match of relevant) {
+              await createEdge(this.env.DB, componentId, match.componentId, match.score);
+            }
           }
         });
       }

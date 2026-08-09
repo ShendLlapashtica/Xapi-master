@@ -3,6 +3,7 @@ import type {
   Category,
   CategoryRow,
   Classification,
+  ComponentEdgeRow,
   ComponentRow,
   ComponentStatus,
   ComponentsQueryParams,
@@ -326,6 +327,44 @@ export async function upsertAccount(
     )
     .bind(handle, xUserId)
     .run();
+}
+
+// Persisted graph edges -- the actual relationship store behind the
+// Vectorize similarity check (src/verify/embeddings.ts). Before this, a
+// similarity match only ever produced a one-off evidence file at classify
+// time; nothing was saved, so "what's connected to this component" had no
+// answer after that moment passed. This table is what makes it a real,
+// queryable graph instead of a check that evaporates.
+export async function createEdge(
+  db: D1Database,
+  fromComponentId: string,
+  toComponentId: string,
+  score: number,
+  relationshipType = "similar_to",
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO component_edges (id, from_component_id, to_component_id, relationship_type, score)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(from_component_id, to_component_id, relationship_type) DO UPDATE SET score = excluded.score`,
+    )
+    .bind(crypto.randomUUID(), fromComponentId, toComponentId, relationshipType, score)
+    .run();
+}
+
+// Edges are directional in storage (from the newer component to the older
+// match it was compared against) but relationships like "similar_to" are
+// conceptually symmetric -- this returns both directions so a query from
+// either endpoint finds the connection.
+export async function getEdgesForComponent(db: D1Database, componentId: string): Promise<ComponentEdgeRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT * FROM component_edges WHERE from_component_id = ? OR to_component_id = ?
+       ORDER BY score DESC`,
+    )
+    .bind(componentId, componentId)
+    .all<ComponentEdgeRow>();
+  return results;
 }
 
 export function parseClaims(claims: string | null): string[] {
