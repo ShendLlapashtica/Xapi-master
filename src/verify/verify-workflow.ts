@@ -34,41 +34,50 @@ import { runSanityCheck } from "./steps/sanity";
 import { detectStackForRepo, runSmoke } from "./steps/smoke";
 import { createXClient, postTweet } from "../listener/x-client";
 
+// Deliberately no emoji, no ALL-CAPS -- this is a public reply attached to
+// a stranger's post, and reads as a bot regardless, but a measured,
+// consistent voice is the difference between "useful automated check" and
+// "spam account." The results link is cheap (X shortens any URL to a flat
+// ~23 chars via t.co) and turns a bare verdict into something a reader can
+// actually verify themselves rather than take on faith.
+const RESULTS_URL = "xapi.prishtina-online.workers.dev";
+
 function formatTweetText(component: ComponentRow): string {
   const repoStr = `${component.repo_owner}/${component.repo_name}`;
+  const category = component.category || "uncategorized";
   let msg = "";
 
   switch (component.status) {
     case "sanity:fail":
-      msg = `❌ Verification failed at Sanity check: ${repoStr} is invalid, empty, or lacks a license/README.`;
+      msg = `Xapi check — ${repoStr} didn't pass basic validation (missing license/README, or empty repo). ${RESULTS_URL}`;
       break;
     case "smoke:fail":
-      msg = `❌ Verification failed at Smoke test: ${repoStr} failed to build/install cleanly.`;
+      msg = `Xapi check — ${repoStr} failed to build in an isolated sandbox. ${RESULTS_URL}`;
       break;
     case "smoke:unsupported_stack":
-      msg = `⚠️ Verification skipped: ${repoStr} uses an unsupported stack (only Node/Python are fully supported currently).`;
+      msg = `Xapi check — ${repoStr} uses a stack we don't verify yet (Node/Python only, for now).`;
       break;
     case "smoke:pass":
-      msg = `✅ Verification PASSED at Smoke tier: ${repoStr} built successfully. Category: ${component.category || "unknown"}.`;
+      msg = `Xapi check — ${repoStr} builds cleanly (${category}). ${RESULTS_URL}`;
       break;
     case "capability:pass":
-      msg = `🎉 Verification PASSED: ${repoStr} successfully parsed/converted the test fixtures! Category: ${component.category}.`;
+      msg = `Xapi check — ${repoStr} passed real-document testing for ${category}. ${RESULTS_URL}`;
       break;
     case "capability:partial":
-      msg = `⚠️ Verification PARTIAL: ${repoStr} processed some but not all test fixtures. Category: ${component.category}.`;
+      msg = `Xapi check — ${repoStr} passed some but not all real-document tests (${category}). ${RESULTS_URL}`;
       break;
     case "capability:fail":
-      msg = `❌ Verification FAILED: ${repoStr} failed to process the test fixtures. Category: ${component.category}.`;
+      msg = `Xapi check — ${repoStr} did not pass real-document testing (${category}). ${RESULTS_URL}`;
       break;
     case "capability:undetermined":
-      msg = `❓ Verification UNDETERMINED: ${repoStr} could not be successfully invoked against test fixtures.`;
+      msg = `Xapi check — ${repoStr} couldn't be reliably invoked for testing. Inconclusive.`;
       break;
     default:
-      msg = `ℹ️ Verification status updated for ${repoStr}: ${component.status}`;
+      msg = `Xapi check — ${repoStr}: status updated to ${component.status}.`;
   }
 
   if (msg.length > 280) {
-    msg = msg.substring(0, 277) + "...";
+    msg = msg.slice(0, 277) + "...";
   }
   return msg;
 }
@@ -97,7 +106,18 @@ async function postWorkflowResult(step: WorkflowStep, db: D1Database, env: Env, 
 
     if (env.X_SESSION_TOKEN) {
       const client = createXClient(env.X_SESSION_TOKEN);
-      await postTweet(client, text, tweetId);
+      try {
+        await postTweet(client, text, tweetId);
+      } catch (err) {
+        // Deliberately swallowed, not rethrown: step.do() retries a step
+        // that throws, and X's own response can fail/time out *after* the
+        // reply already went through server-side -- rethrowing here risks
+        // a second real reply to the same tweet on retry. A silently
+        // missed reply is a far better failure mode for a public-facing
+        // bot than a duplicate one; this is caught, not corrupted -- the
+        // component's verification result is unaffected either way.
+        console.error(`[X Bot] Failed to post reply for component ${componentId}, not retrying:`, err);
+      }
     } else {
       console.log(`[X Bot] Would post tweet: "${text}" replying to: ${tweetId || "none"}`);
     }
