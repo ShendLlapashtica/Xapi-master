@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { pollAccounts, type XPollClient } from "./x-client";
+import { pollAccounts, postTweet, type XPollClient } from "./x-client";
 
 // rettiwt-auth (a transitive dep, itself flagged deprecated on npm) does a
 // default import of `https-proxy-agent`, which has shipped named exports
@@ -77,5 +77,25 @@ describe("pollAccounts", () => {
     // still advances the cursor even though nothing was extracted, so a
     // quiet/no-link-having tweet doesn't get re-scanned forever
     expect(result.newestId).toBe("1");
+  });
+});
+
+describe("postTweet", () => {
+  it("calls client.tweet.post with text and replyTo", async () => {
+    const postMock = vi.fn(async () => "tweet-id-123");
+    const client = { tweet: { post: postMock } } as any;
+
+    const result = await postTweet(client, "Hello world!", "999");
+    expect(result).toBe("tweet-id-123");
+    expect(postMock).toHaveBeenCalledWith({ text: "Hello world!", replyTo: "999" });
+  });
+
+  it("handles missing replyTo ID gracefully", async () => {
+    const postMock = vi.fn(async () => "tweet-id-123");
+    const client = { tweet: { post: postMock } } as any;
+
+    const result = await postTweet(client, "Hello world!");
+    expect(result).toBe("tweet-id-123");
+    expect(postMock).toHaveBeenCalledWith({ text: "Hello world!", replyTo: undefined });
   });
 });

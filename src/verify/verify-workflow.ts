@@ -6,6 +6,7 @@ import {
   findComponentByReadmeFingerprint,
   findOrCreateCategoryNode,
   getComponent,
+  listSourcePostsForComponent,
   parseCliInvocation,
   setReadmeFingerprint,
   updateComponentClassification,
@@ -20,6 +21,8 @@ import {
   type Env,
   type FixtureResult,
   type VerifyRequestParams,
+  type SourcePostRow,
+  type ComponentRow,
 } from "../types";
 import { classifyReadme } from "./groq-client";
 import { getReadmeText } from "./github-client";
@@ -29,6 +32,72 @@ import { isTerminalStatus } from "./status";
 import { runCapabilityFixture, FIXTURES } from "./steps/capability";
 import { runSanityCheck } from "./steps/sanity";
 import { detectStackForRepo, runSmoke } from "./steps/smoke";
+import { createXClient, postTweet } from "../listener/x-client";
+
+function formatTweetText(component: ComponentRow): string {
+  const repoStr = `${component.repo_owner}/${component.repo_name}`;
+  let msg = "";
+
+  switch (component.status) {
+    case "sanity:fail":
+      msg = `❌ Verification failed at Sanity check: ${repoStr} is invalid, empty, or lacks a license/README.`;
+      break;
+    case "smoke:fail":
+      msg = `❌ Verification failed at Smoke test: ${repoStr} failed to build/install cleanly.`;
+      break;
+    case "smoke:unsupported_stack":
+      msg = `⚠️ Verification skipped: ${repoStr} uses an unsupported stack (only Node/Python are fully supported currently).`;
+      break;
+    case "smoke:pass":
+      msg = `✅ Verification PASSED at Smoke tier: ${repoStr} built successfully. Category: ${component.category || "unknown"}.`;
+      break;
+    case "capability:pass":
+      msg = `🎉 Verification PASSED: ${repoStr} successfully parsed/converted the test fixtures! Category: ${component.category}.`;
+      break;
+    case "capability:partial":
+      msg = `⚠️ Verification PARTIAL: ${repoStr} processed some but not all test fixtures. Category: ${component.category}.`;
+      break;
+    case "capability:fail":
+      msg = `❌ Verification FAILED: ${repoStr} failed to process the test fixtures. Category: ${component.category}.`;
+      break;
+    case "capability:undetermined":
+      msg = `❓ Verification UNDETERMINED: ${repoStr} could not be successfully invoked against test fixtures.`;
+      break;
+    default:
+      msg = `ℹ️ Verification status updated for ${repoStr}: ${component.status}`;
+  }
+
+  if (msg.length > 280) {
+    msg = msg.substring(0, 277) + "...";
+  }
+  return msg;
+}
+
+async function postWorkflowResult(step: WorkflowStep, db: D1Database, env: Env, componentId: string): Promise<void> {
+  await step.do("post-to-x", async () => {
+    const finalComponent = await getComponent(db, componentId);
+    if (!finalComponent) return;
+
+    if (!isTerminalStatus(finalComponent.status, finalComponent.category)) {
+      return;
+    }
+
+    const sourcePosts = await listSourcePostsForComponent(db, componentId);
+    const originalPost = sourcePosts.reduce((oldest, current) => {
+      return !oldest || new Date(current.posted_at) < new Date(oldest.posted_at) ? current : oldest;
+    }, null as SourcePostRow | null);
+
+    const tweetId = originalPost?.post_id;
+    const text = formatTweetText(finalComponent);
+
+    if (env.X_SESSION_TOKEN) {
+      const client = createXClient(env.X_SESSION_TOKEN);
+      await postTweet(client, text, tweetId);
+    } else {
+      console.log(`[X Bot] Would post tweet: "${text}" replying to: ${tweetId || "none"}`);
+    }
+  });
+}
 
 // One Workflow instance per newly-discovered repo (see src/extract/extract-consumer.ts,
 // which creates instances with a deterministic `verify-${componentId}` id --
@@ -41,6 +110,15 @@ import { detectStackForRepo, runSmoke } from "./steps/smoke";
 // sanity:fail/smoke:fail rows. See BRIEF.md §2 "Verify".
 export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestParams> {
   async run(event: WorkflowEvent<VerifyRequestParams>, step: WorkflowStep): Promise<void> {
+    const { componentId } = event.payload;
+    try {
+      await this.runVerification(event, step);
+    } finally {
+      await postWorkflowResult(step, this.env.DB, this.env, componentId);
+    }
+  }
+
+  async runVerification(event: WorkflowEvent<VerifyRequestParams>, step: WorkflowStep): Promise<void> {
     const { componentId, repoOwner, repoName } = event.payload;
 
     const component = await step.do("load-component", async () => {

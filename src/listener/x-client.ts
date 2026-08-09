@@ -30,6 +30,18 @@ export interface XPollClient {
   tweet: Pick<Rettiwt["tweet"], "search">;
 }
 
+export interface XPostClient {
+  tweet: Pick<Rettiwt["tweet"], "post">;
+}
+
+export async function postTweet(
+  client: XPostClient,
+  text: string,
+  replyToTweetId?: string,
+): Promise<string | undefined> {
+  return await client.tweet.post({ text, replyTo: replyToTweetId });
+}
+
 export interface PollResult {
   messages: RawPostMessage[];
   newestId: string | undefined;
