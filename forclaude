@@ -1,24 +1,84 @@
-# Instructions for Claude / Main Developer
+# Logical Flow: Take Posts, Pipeline, and Repost to X
 
-We have implemented and deployed X posting integration to the pipeline, along with the safety guard to skip manually-triggered components.
+This document explains the exact logical sequence of how the Xapi bot takes posts from X, pipelines them through verification, and automatically posts the status back to X under your account.
 
-To make X posting work in production, you need to perform the following:
+---
 
-## 1. Set the X Session Token Secret
-The X client requires a session token cookie string encoded via `rettiwt-api`'s AuthService. Run this to encode and set the secret:
+## 1. The Logical Pipeline Architecture
 
-```bash
-# Get cookie string (auth_token=...; ct0=...; twid=...) from browser
-node -e "const { AuthService } = require('rettiwt-api'); console.log(AuthService.encodeCookie('YOUR_COOKIE_STRING'));"
-
-# Take the encoded token and set it in Wrangler:
-npx wrangler secret put X_SESSION_TOKEN
+```
+ [X Platform]
+      │
+      ▼ (Step A: Listen)
+ ┌──────────────────────────────────────────────┐
+ │ ListenerAgent (Durable Object)               │
+ │ - Polls X search API using rettiwt-api        │
+ │ - Gathers new tweets from the tracked roster │
+ └──────────────────────┬───────────────────────┘
+                        │
+                        ▼ (Queue: raw-posts)
+ ┌──────────────────────────────────────────────┐
+ │ Extract Consumer (Step B: Detect & Extract)  │
+ │ - Resolves URLs from tweets                  │
+ │ - Deduplicates & parses GitHub links         │
+ │ - Inserts data into D1 Database              │
+ └──────────────────────┬───────────────────────┘
+                        │
+                        ▼ (Queue: verify-requests)
+ ┌──────────────────────────────────────────────┐
+ │ VerificationWorkflow (Step C: Verify)        │
+ │ - Runs Sanity, Classify, Smoke, & Capability  │
+ │ - Persists outcomes to D1 and artifacts to R2│
+ └──────────────────────┬───────────────────────┘
+                        │
+                        ▼ (Step D: Post Output)
+ ┌──────────────────────────────────────────────┐
+ │ postWorkflowResult step                      │
+ │ - Formats the test outcome text              │
+ │ - Finds the initiating tweet ID              │
+ │ - Uses Rettiwt.tweet.post to reply           │
+ └──────────────────────────────────────────────┘
 ```
 
-## 2. Test X Posting
-Once the secret is set, any organic run through the listener -> extract -> verify-workflow pipeline that reaches a terminal status will post a reply back to X.
+---
 
-To test this manually with a simulated tweet without relying on organic polling:
-1. Insert a mock component and a mock source post in the D1 database representing a real tweet ID you want to reply to.
-2. Run the `verification-workflow` on it.
-3. The workflow will read the post ID and call the X client to reply to it.
+## 2. Implementation Breakdown
+
+### A. Polling and Discovering Tweets (`src/listener/x-client.ts` & `listener-agent.ts`)
+1. The **`ListenerAgent`** (a Durable Object) wakes up periodically (every 15 minutes) and polls X using `pollAccounts`.
+2. It requests links and user filters using `TweetFilter` in `x-client.ts`.
+3. Discovered tweets with URLs are canonicalized and wrapped into `RawPostMessage` objects, then sent to the `raw-posts` queue.
+
+### B. Extracting and Cataloging (`src/extract/extract-consumer.ts`)
+1. The queue consumer parses `entities.urls[]` in the tweet to extract a `github.com/{owner}/{repo}` structure.
+2. It inserts the post into the **`source_posts`** database table (connecting the `component_id` with the tweet's `post_id`).
+3. If the repository is brand new, it enqueues a verification request on `verify-requests`.
+
+### C. The Verification Workflow (`src/verify/verify-workflow.ts`)
+1. **`VerificationWorkflow`** runs steps (sanity, classify, smoke, capability) sequentially.
+2. If any step returns a **terminal status** (fails sanity/smoke/capability, or successfully passes capability), the workflow completes.
+
+### D. Reposting to X (`src/verify/verify-workflow.ts` -> `src/listener/x-client.ts`)
+1. At the very end of `VerificationWorkflow.run`, a `finally` block runs the `post-to-x` step.
+2. It queries D1 to retrieve the oldest `source_post` for that component (finding the exact tweet ID that initiated the process).
+3. If the run was triggered manually (e.g. `post_url === "manual-trigger"`), it skips posting to avoid API errors on invalid IDs.
+4. If it was triggered by a real tweet and `X_SESSION_TOKEN` is set:
+   - It formats the message text (success, fail, or partial flags).
+   - It calls `postTweet(client, text, tweetId)` to post a public reply directly back to the original author's tweet on X.
+
+---
+
+## 3. How to Set Up and Run
+
+1. **Encode your browser session cookies**:
+   Log into your X account in a browser, extract `auth_token`, `ct0`, and `twid` from your cookies, and format it as `auth_token=...; ct0=...; twid=...`. Encode it:
+   ```bash
+   node -e "const { AuthService } = require('rettiwt-api'); console.log(AuthService.encodeCookie('auth_token=...; ct0=...; twid=...'));"
+   ```
+2. **Deploy the Secret**:
+   Set the resulting base64 string as `X_SESSION_TOKEN` on Cloudflare Wrangler:
+   ```bash
+   npx wrangler secret put X_SESSION_TOKEN
+   ```
+3. **Run testing**:
+   Organic polling handles the rest. Any new tweets containing GitHub links posted by tracked accounts will be processed and replied to automatically.
