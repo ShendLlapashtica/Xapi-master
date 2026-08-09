@@ -1,9 +1,8 @@
 import { Agent } from "agents";
 import { listAccounts } from "../catalog/components-repo";
 import type { Env } from "../types";
-import { searchRecent } from "./x-client";
-import { extractRawPosts } from "./x-parse";
-import { buildSearchQuery } from "./x-query";
+import { createXClient, pollAccounts } from "./x-client";
+import { normalizeHandle } from "./x-query";
 
 const POLL_INTERVAL_SECONDS = 15 * 60;
 
@@ -41,14 +40,14 @@ export class ListenerAgent extends Agent<Env, ListenerState> {
   // Scheduled callback (registered by onStart via scheduleEvery). Also
   // callable directly for testing/manual triggering.
   async poll(): Promise<void> {
-    if (!this.env.X_BEARER_TOKEN) {
-      // No X API access purchased -- this is a deliberate, permanent
-      // choice (see README.md's "Known deviations from BRIEF.md"), not a
-      // misconfiguration, so this stays a quiet no-op rather than an error
-      // that would otherwise fire every 15 minutes forever. The schedule
-      // itself is still kept running so the pipeline starts working on its
-      // own the moment a token is set, with no extra bootstrap step.
-      // Use POST /admin/verify-repo to feed repos in manually until then.
+    if (!this.env.X_SESSION_TOKEN) {
+      // No session configured yet -- a deliberate, expected state (see
+      // README.md's "X integration"), not a misconfiguration, so this
+      // stays a quiet no-op rather than an error that would otherwise fire
+      // every 15 minutes forever. The schedule itself is still kept
+      // running so the pipeline starts working on its own the moment a
+      // token is set, with no extra bootstrap step. Use
+      // POST /admin/verify-repo to feed repos in manually until then.
       return;
     }
 
@@ -57,18 +56,16 @@ export class ListenerAgent extends Agent<Env, ListenerState> {
       return;
     }
 
-    const query = buildSearchQuery(accounts.map((a) => a.handle));
-    const response = await searchRecent(query, this.state.sinceId ?? undefined, {
-      bearerToken: this.env.X_BEARER_TOKEN,
-    });
+    const client = createXClient(this.env.X_SESSION_TOKEN);
+    const handles = accounts.map((a) => normalizeHandle(a.handle));
+    const { messages, newestId } = await pollAccounts(client, handles, this.state.sinceId ?? undefined);
 
-    const candidates = extractRawPosts(response);
-    for (const candidate of candidates) {
-      await this.env.RAW_POSTS.send(candidate);
+    for (const message of messages) {
+      await this.env.RAW_POSTS.send(message);
     }
 
     this.setState({
-      sinceId: response.meta.newest_id ?? this.state.sinceId,
+      sinceId: newestId ?? this.state.sinceId,
       lastPolledAt: new Date().toISOString(),
     });
   }

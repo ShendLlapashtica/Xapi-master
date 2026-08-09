@@ -5,50 +5,69 @@ import { resetSchema } from "../../test/helpers/apply-schema";
 import { upsertAccount } from "../catalog/components-repo";
 import type { Env } from "../types";
 
+// ListenerAgent's own job is orchestration (roster -> client -> cursor ->
+// queue), not the X polling/mapping logic itself -- that's covered on its
+// own terms in x-client.test.ts against an injected fake. Mocking the
+// whole module here keeps this file about what ListenerAgent does with
+// what the client returns, not about re-proving the client's internals.
+const pollAccountsMock = vi.fn();
+vi.mock("./x-client", () => ({
+  createXClient: vi.fn(() => ({})),
+  pollAccounts: (...args: unknown[]) => pollAccountsMock(...args),
+}));
+
 const testEnv = env as unknown as Env;
+const originalRawPosts = testEnv.RAW_POSTS;
+const originalSessionToken = testEnv.X_SESSION_TOKEN;
 
 beforeEach(async () => {
   await resetSchema(testEnv.DB);
+  pollAccountsMock.mockReset();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  testEnv.RAW_POSTS = originalRawPosts;
+  testEnv.X_SESSION_TOKEN = originalSessionToken;
 });
 
 describe("ListenerAgent.poll", () => {
-  it("does nothing when the roster is empty", async () => {
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-
-    const agent = await getAgentByName(testEnv.LISTENER_AGENT, "empty-roster-test");
+  it("does nothing when X_SESSION_TOKEN is unset", async () => {
+    testEnv.X_SESSION_TOKEN = "";
+    const agent = await getAgentByName(testEnv.LISTENER_AGENT, "no-token-test");
     await agent.poll();
-
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(pollAccountsMock).not.toHaveBeenCalled();
   });
 
-  it("polls X, enqueues extracted posts, and advances since_id in state", async () => {
-    await upsertAccount(testEnv.DB, "alice", "111");
+  it("does nothing when the roster is empty", async () => {
+    testEnv.X_SESSION_TOKEN = "test-session-token";
+    const agent = await getAgentByName(testEnv.LISTENER_AGENT, "empty-roster-test");
+    await agent.poll();
+    expect(pollAccountsMock).not.toHaveBeenCalled();
+  });
 
-    const xResponse = {
-      data: [
-        {
-          id: "42",
-          text: "check this out",
-          author_id: "111",
-          created_at: "2026-08-01T00:00:00.000Z",
-          entities: { urls: [{ url: "t.co/x", expanded_url: "https://github.com/acme/widget" }] },
-        },
-      ],
-      includes: { users: [{ id: "111", username: "alice" }] },
-      meta: { result_count: 1, newest_id: "42" },
+  it("polls with normalized handles, enqueues messages, and advances since_id in state", async () => {
+    testEnv.X_SESSION_TOKEN = "test-session-token";
+    await upsertAccount(testEnv.DB, "@alice", null);
+
+    const message = {
+      postId: "42",
+      postUrl: "https://x.com/alice/status/42",
+      authorHandle: "alice",
+      authorUserId: "u1",
+      postedAt: "2026-08-01T00:00:00.000Z",
+      urls: ["https://github.com/acme/widget"],
     };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify(xResponse), { status: 200 })),
-    );
+    pollAccountsMock.mockResolvedValue({ messages: [message], newestId: "42" });
+
+    const sendSpy = vi.fn();
+    testEnv.RAW_POSTS = { send: sendSpy } as never;
 
     const agent = await getAgentByName(testEnv.LISTENER_AGENT, "poll-test");
     await agent.poll();
+
+    expect(pollAccountsMock).toHaveBeenCalledWith(expect.anything(), ["alice"], undefined);
+    expect(sendSpy).toHaveBeenCalledWith(message);
 
     // `onRequest` isn't itself remotely callable over the DO's RPC surface
     // (it's the framework's own HTTP entry point, not a plain method) --

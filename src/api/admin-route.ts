@@ -4,7 +4,10 @@ import { canonicalizeGithubUrl } from "../extract/github-url";
 import type { Env } from "../types";
 
 interface SeedAccountsBody {
-  accounts: Array<{ handle: string; xUserId: string }>;
+  // xUserId is vestigial (see components-repo.ts's upsertAccount) -- kept
+  // optional here rather than dropped so old callers/scripts that still
+  // send it don't break.
+  accounts: Array<{ handle: string; xUserId?: string }>;
 }
 
 interface VerifyRepoBody {
@@ -82,16 +85,13 @@ export async function handleAdminAccountsSeed(request: Request, env: Env): Promi
   }
 
   for (const account of body.accounts) {
-    if (!account.handle || !account.xUserId) {
-      return Response.json(
-        { error: "each account requires handle and xUserId" },
-        { status: 400 },
-      );
+    if (!account.handle) {
+      return Response.json({ error: "each account requires a handle" }, { status: 400 });
     }
   }
 
   for (const account of body.accounts) {
-    await upsertAccount(env.DB, account.handle.trim().replace(/^@/, ""), account.xUserId);
+    await upsertAccount(env.DB, account.handle.trim().replace(/^@/, ""), account.xUserId ?? null);
   }
 
   return Response.json({ seeded: body.accounts.length });

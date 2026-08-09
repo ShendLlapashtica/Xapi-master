@@ -298,10 +298,14 @@ export async function listAccounts(db: D1Database): Promise<AccountRow[]> {
   return results;
 }
 
+// xUserId is vestigial now that polling goes through rettiwt-api (searches
+// by username directly, see src/listener/x-client.ts) -- kept nullable
+// rather than removed outright since it's harmless to record when known
+// and some callers may still have it from the official-API era.
 export async function upsertAccount(
   db: D1Database,
   handle: string,
-  xUserId: string,
+  xUserId: string | null = null,
 ): Promise<void> {
   await db
     .prepare(

@@ -1,10 +1,8 @@
 // One-time (or re-run-when-roster-changes) setup script: reads
 // seed/accounts.seed.json and POSTs it to the deployed Worker's
-// /admin/accounts/seed route. x_user_id must already be filled in --
-// resolve it once via:
-//   curl -H "Authorization: Bearer $X_BEARER_TOKEN" \
-//     "https://api.x.com/2/users/by?usernames=handle1,handle2,..."
-// and paste the numeric ids into seed/accounts.seed.json before running this.
+// /admin/accounts/seed route. No numeric x_user_id resolution needed --
+// polling goes through rettiwt-api, which searches by username directly
+// (see src/listener/x-client.ts).
 //
 // Usage: WORKER_URL=https://xapi.<subdomain>.workers.dev ADMIN_TOKEN=... npm run seed:accounts
 
@@ -23,12 +21,12 @@ const seedFilePath = fileURLToPath(new URL("../seed/accounts.seed.json", import.
 
 async function main(): Promise<void> {
   const raw = await readFile(seedFilePath, "utf-8");
-  const { accounts } = JSON.parse(raw) as { accounts: Array<{ handle: string; xUserId: string }> };
+  const { accounts } = JSON.parse(raw) as { accounts: Array<{ handle: string }> };
 
-  const placeholders = accounts.filter((a) => a.xUserId.startsWith("REPLACE_WITH"));
+  const placeholders = accounts.filter((a) => a.handle.startsWith("example_handle"));
   if (placeholders.length > 0) {
     console.error(
-      `${placeholders.length} account(s) still have placeholder x_user_id values -- resolve them first (see the comment at the top of this script).`,
+      `${placeholders.length} account(s) still have placeholder handles -- edit seed/accounts.seed.json first.`,
     );
     process.exit(1);
   }

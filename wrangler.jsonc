@@ -8,6 +8,10 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
+  // Container local dev needs Docker + (on Windows) WSL2, neither available
+  // on this machine -- same reason the relay runs as a local process +
+  // tunnel instead (see relay/README.md). Doesn't affect real deploys.
+  "dev": { "enable_containers": false },
 
   // ListenerAgent — Agents SDK Durable Object, polls X on a self-renewing schedule.
   // E2bRelayContainer — Cloudflare Container fronting relay/ (see relay/README.md):

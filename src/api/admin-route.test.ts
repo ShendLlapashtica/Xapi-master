@@ -35,6 +35,13 @@ describe("handleAdminAccountsSeed", () => {
     expect(accounts.map((a) => a.handle).sort()).toEqual(["alice", "bob"]);
   });
 
+  it("seeds an account with no xUserId at all -- optional now that polling goes by username", async () => {
+    const res = await handleAdminAccountsSeed(request({ accounts: [{ handle: "carol" }] }), testEnv);
+    expect(res.status).toBe(200);
+    const accounts = await listAccounts(testEnv.DB);
+    expect(accounts.find((a) => a.handle === "carol")?.x_user_id).toBeNull();
+  });
+
   it("400s on an empty accounts array", async () => {
     const res = await handleAdminAccountsSeed(request({ accounts: [] }), testEnv);
     expect(res.status).toBe(400);

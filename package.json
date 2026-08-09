@@ -17,7 +17,12 @@
   "dependencies": {
     "@cloudflare/containers": "^0.3.7",
     "agents": "^0.20.1",
+    "rettiwt-api": "^4.2.0",
     "zod": "^4.4.3"
+  },
+  "overrides": {
+    "axios": "^1.19.0",
+    "form-data": "^4.0.6"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.20.3",

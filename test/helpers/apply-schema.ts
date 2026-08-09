@@ -2,12 +2,12 @@
 // than D1Database.exec() (which has stricter single-line-statement,
 // no-comment constraints) so local test runs don't depend on that parser.
 // Keep this in sync with migrations/0001_init.sql, 0002_category_graph.sql,
-// and 0003_readme_fingerprint.sql.
+// 0003_readme_fingerprint.sql, and 0004_x_user_id_optional.sql.
 const STATEMENTS: string[] = [
   `CREATE TABLE accounts (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     handle     TEXT NOT NULL UNIQUE,
-    x_user_id  TEXT NOT NULL UNIQUE,
+    x_user_id  TEXT UNIQUE,
     added_at   TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
   `CREATE TABLE categories (

@@ -142,7 +142,7 @@ export type MajorityVerdict =
 export interface AccountRow {
   id: number;
   handle: string;
-  x_user_id: string;
+  x_user_id: string | null;
   added_at: string;
 }
 
@@ -225,10 +225,12 @@ export interface Env {
   // Cloudflare Tunnel to a relay running outside Cloudflare entirely.
   E2B_RELAY_URL: string;
 
-  // Optional: unset by design if X API access hasn't been purchased (see
-  // README.md's "Known deviations from BRIEF.md") -- ListenerAgent.poll()
-  // no-ops gracefully rather than erroring when this is empty.
-  X_BEARER_TOKEN: string;
+  // rettiwt-api's encoded session cookie for a dedicated X account (see
+  // src/listener/x-client.ts and README.md's "X integration" section) --
+  // NOT an official API key, no purchase involved. Optional/empty until
+  // set; ListenerAgent.poll() no-ops gracefully rather than erroring when
+  // it's blank.
+  X_SESSION_TOKEN: string;
   GITHUB_TOKEN: string;
   // Classify tier runs on Groq (free tier, OpenAI-compatible structured
   // outputs), not the brief's original Anthropic choice -- see

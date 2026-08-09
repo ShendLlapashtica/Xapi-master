@@ -20,16 +20,78 @@ change of design intent:
   parsing or malformed-JSON reprompting needed. Model is
   `openai/gpt-oss-120b`, configurable via `GroqClientOptions.model`.
 - **No X API access.** X's pricing makes this a real recurring cost with no
-  free tier, and that purchase was declined. `ListenerAgent.poll()`
-  (`src/listener/listener-agent.ts`) checks for `X_BEARER_TOKEN` and no-ops
-  quietly if it's unset, rather than erroring every 15 minutes forever --
-  the recurring schedule keeps running so the pipeline starts working on
-  its own the moment a token is ever set, no extra step needed. Until then,
-  **`POST /admin/verify-repo`** is the real way repos enter the catalog:
-  it runs the exact same discover → dedupe → enqueue-verification path a
-  live post's link would have hit (see `src/extract/extract-consumer.ts`'s
-  `discoverRepo()`, shared by both paths), just triggered manually instead
-  of by a tracked account posting a link.
+  free tier, and that purchase was declined -- see "X integration" below
+  for what runs instead.
+
+## X integration
+
+**Not the official API -- a self-hosted client on `rettiwt-api`, using a
+dedicated account's own logged-in session.** `src/listener/x-client.ts`
+talks to the same internal endpoints x.com's own web app uses, authenticated
+as a real account rather than through a paid developer key. This is the
+same category of tool as `agent-twitter-client`/`twikit`/etc: real,
+maintained-ish, widely used for exactly this -- not something built from
+scratch here.
+
+**Be clear-eyed about what this is:** it's against X's Terms of Service,
+the same way most unofficial-API scraping is against most platforms' ToS.
+It isn't the kind of thing that invites a lawsuit at this scale, but the
+account doing it can get rate-limited or suspended -- which is exactly why
+this should run as a **dedicated, secondary** account, never your main one.
+
+**Setup — the one real credential this needs:**
+1. Log into X as the dedicated account in a normal browser.
+2. DevTools → Application (or Storage) → Cookies → `x.com` → copy the
+   `auth_token`, `ct0`, and `twid` values.
+3. Build a cookie string: `auth_token=...; ct0=...; twid=...`
+4. Encode it (one-off, run locally with `node`):
+   ```js
+   const { AuthService } = require("rettiwt-api");
+   console.log(AuthService.encodeCookie("auth_token=...; ct0=...; twid=..."));
+   ```
+5. `wrangler secret put X_SESSION_TOKEN` and paste the encoded value.
+
+Until that's set, `ListenerAgent.poll()` checks for `X_SESSION_TOKEN` and
+no-ops quietly rather than erroring every 15 minutes forever -- the
+recurring schedule keeps running so polling starts on its own the moment a
+token is set, no extra bootstrap step needed. `POST /admin/verify-repo`
+remains the manual fallback either way: it runs the exact same discover →
+dedupe → enqueue-verification path a live post's link would have hit (see
+`src/extract/extract-consumer.ts`'s `discoverRepo()`, shared by both
+paths).
+
+**Dependency security, checked not assumed:** `rettiwt-api`'s transitive
+deps pulled in `axios`/`form-data` versions with real, current CVEs
+(SSRF, prototype pollution, an unsafe boundary-randomness bug) at install
+time -- confirmed via `npm audit`, not skipped. Pinned to patched versions
+via `package.json`'s `overrides` (`axios` ^1.19.0, `form-data` ^4.0.6);
+`npm audit` reports zero vulnerabilities as of this writing. Re-run it
+after any `npm update` touching this dependency tree -- a session token is
+real account access, worth the extra minute.
+
+**Seed the tracked accounts** (no numeric id resolution needed anymore --
+searches go by username directly):
+```bash
+WORKER_URL=https://xapi.<subdomain>.workers.dev ADMIN_TOKEN=... npm run seed:accounts
+```
+then `POST /admin/listener/start` once to bootstrap the Durable Object's
+recurring poll (it's lazy -- needs one manual hit after deploy/token-set).
+
+**Known-fragile, honestly:** X ships frontend changes regularly, and any of
+them can rotate internal GraphQL query IDs or invalidate a session without
+notice -- when that happens, polling goes silent (no new posts, no error),
+not loud. `rettiwt-auth`/`rettiwt-core` (transitive deps) are themselves
+flagged deprecated on npm as of this writing; `rettiwt-api` itself is
+still actively published. Also confirmed live (2026-08-09): a transitive
+dependency (`rettiwt-auth` → `https-proxy-agent`, a default-import against
+a named-exports-only package) fails to load under this project's own test
+runner (`@cloudflare/vitest-pool-workers`), even though it loads fine in
+the real deployed Worker (verified directly via `wrangler dev`) -- the
+test for `pollAccounts` mocks the `rettiwt-api` module rather than relying
+on that import chain, see the comment in `src/listener/x-client.test.ts`.
+The actual live network path (a real search call against a real session)
+has not been exercised yet -- that only becomes possible once a real
+`X_SESSION_TOKEN` exists.
 
 ## Reliability test — 2026-08-08
 

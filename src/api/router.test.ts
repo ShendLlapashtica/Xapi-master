@@ -11,7 +11,7 @@ describe("router", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { name: string; secretsConfigured: Record<string, boolean> };
     expect(body.name).toBe("xapi");
-    expect(body.secretsConfigured).toHaveProperty("X_BEARER_TOKEN");
+    expect(body.secretsConfigured).toHaveProperty("X_SESSION_TOKEN");
   });
 
   it("404s on an undefined route", async () => {

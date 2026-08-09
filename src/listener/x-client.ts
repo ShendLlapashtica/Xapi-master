@@ -1,39 +1,66 @@
-import type { XSearchResponse } from "./x-client.types";
+import { Rettiwt, TweetFilter } from "rettiwt-api";
+import { tweetToRawPosts } from "./x-parse";
+import type { RawPostMessage } from "../types";
 
-const SEARCH_RECENT_URL = "https://api.x.com/2/tweets/search/recent";
-
-export interface XClientOptions {
-  bearerToken: string;
-  fetchImpl?: typeof fetch;
+// The self-hosted X client -- talks to X's own internal API the way the
+// website itself does, authenticated as a dedicated secondary account's
+// logged-in session, instead of the paid official developer API (declined,
+// see README.md's "X integration"). Verified 2026-08-09: rettiwt-api@4.2.0
+// bundles cleanly for a Workers `nodejs_compat` build (see
+// x-client.workers-bundle.test.ts) -- the earlier candidate,
+// `agent-twitter-client`, does not (pulls in a native WebRTC binding that
+// crashes on import outside Node). rettiwt-api's own transitive deps
+// (axios, form-data) had real, current CVEs at install time -- pinned to
+// patched versions via package.json's `overrides`, not left to chance,
+// since this client carries a real account's session token.
+//
+// `sessionToken` is rettiwt-api's `apiKey` config value -- despite the
+// name, it's an *encoded cookie string* (auth_token/ct0/twid from a real
+// logged-in browser session), produced by `AuthService.encodeCookie()`,
+// not anything purchased. See README.md for exactly how to get one.
+export function createXClient(sessionToken?: string): Rettiwt {
+  return sessionToken ? new Rettiwt({ apiKey: sessionToken }) : new Rettiwt();
 }
 
-// GET /2/tweets/search/recent for the whole roster in one call, with the
-// expansions needed to resolve retweet URLs (see x-parse.ts) and a
-// since_id cursor so a quiet poll costs nothing. Injectable fetch keeps
-// this testable without a live X_BEARER_TOKEN.
-export async function searchRecent(
-  query: string,
+// The slice of Rettiwt's surface pollAccounts actually needs -- narrowed so
+// tests can inject a fake without constructing a real Rettiwt instance
+// (which requires a valid-shaped session token even in guest mode's error
+// paths).
+export interface XPollClient {
+  tweet: Pick<Rettiwt["tweet"], "search">;
+}
+
+export interface PollResult {
+  messages: RawPostMessage[];
+  newestId: string | undefined;
+}
+
+// One search covering the whole tracked roster, mirroring BRIEF.md's "one
+// call covers the whole roster" design. `links: true` server-side
+// prefilters to posts containing at least one URL; `replies: false`
+// matches the official-API design's `-is:reply`. `sinceId` keeps a quiet
+// poll cheap and idempotent the same way the official API's cursor did.
+export async function pollAccounts(
+  client: XPollClient,
+  handles: string[],
   sinceId: string | undefined,
-  options: XClientOptions,
-): Promise<XSearchResponse> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const url = new URL(SEARCH_RECENT_URL);
-  url.searchParams.set("query", query);
-  url.searchParams.set("expansions", "referenced_tweets.id,author_id");
-  url.searchParams.set("tweet.fields", "entities,created_at");
-  url.searchParams.set("max_results", "100");
-  if (sinceId) {
-    url.searchParams.set("since_id", sinceId);
+): Promise<PollResult> {
+  if (handles.length === 0) {
+    return { messages: [], newestId: sinceId };
   }
 
-  const res = await fetchImpl(url.toString(), {
-    headers: { authorization: `Bearer ${options.bearerToken}` },
-  });
+  const filter = new TweetFilter({ fromUsers: handles, sinceId, replies: false, links: true });
+  const page = await client.tweet.search(filter, 20);
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`X search/recent failed: ${res.status} ${text}`);
+  const messages: RawPostMessage[] = [];
+  let newestId = sinceId;
+
+  for (const tweet of page.list) {
+    messages.push(...tweetToRawPosts(tweet));
+    if (!newestId || BigInt(tweet.id) > BigInt(newestId)) {
+      newestId = tweet.id;
+    }
   }
 
-  return (await res.json()) as XSearchResponse;
+  return { messages, newestId };
 }

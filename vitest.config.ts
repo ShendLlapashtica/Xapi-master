@@ -10,7 +10,7 @@ export default defineConfig({
       // fetch mocks, not by actually hitting X/GitHub/Groq/E2B.
       miniflare: {
         bindings: {
-          X_BEARER_TOKEN: "test-x-bearer-token",
+          X_SESSION_TOKEN: "test-x-session-token",
           GITHUB_TOKEN: "test-github-token",
           GROQ_API_KEY: "test-groq-key",
           E2B_API_KEY: "test-e2b-key",
