@@ -25,6 +25,7 @@ import {
   type SourcePostRow,
   type ComponentRow,
 } from "../types";
+import { embedText, filterRelevantMatches } from "./embeddings";
 import { classifyReadme } from "./groq-client";
 import { getReadmeText } from "./github-client";
 import { computeMajorityVerdict } from "./majority-verdict";
@@ -262,6 +263,44 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
 
         category = classifyResult.classification.category;
         cliInvocation = classifyResult.classification.cliInvocation;
+
+        // Fuzzy pattern matching alongside the exact-fingerprint dedup above
+        // -- catches the same scam/hype *shape* described in different
+        // words, which an exact hash can't. Flags via evidence only, never
+        // changes category/status automatically: a similarity score is
+        // something a human (or a future, more confident rule) should
+        // weigh, not proof on its own. See src/verify/embeddings.ts.
+        const embedding = await step.do("classify-embed", async () =>
+          embedText(this.env.AI, readmeText),
+        );
+        await step.do("classify-embed-upsert", async () => {
+          await this.env.README_EMBEDDINGS.upsert([
+            {
+              id: componentId,
+              values: embedding,
+              metadata: {
+                repo: `${repoOwner}/${repoName}`,
+                category: classifyResult.classification.suggestedCategory,
+              },
+            },
+          ]);
+        });
+        await step.do("classify-similarity-check", async () => {
+          const result = await this.env.README_EMBEDDINGS.query(embedding, {
+            topK: 5,
+            returnMetadata: true,
+          });
+          const relevant = filterRelevantMatches(result.matches, componentId);
+          if (relevant.length > 0) {
+            await writeEvidenceBatch(this.env.EVIDENCE, [
+              {
+                key: evidenceKey(componentId, "classify", "similarity.json"),
+                body: JSON.stringify(relevant, null, 2),
+                contentType: "application/json",
+              },
+            ]);
+          }
+        });
       }
     }
 

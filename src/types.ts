@@ -243,4 +243,8 @@ export interface Env {
   E2B_API_KEY: string;
   ADMIN_TOKEN: string;
   RELAY_SHARED_SECRET: string;
+  // Fuzzy pattern matching alongside the exact-match README fingerprint --
+  // see src/verify/embeddings.ts.
+  AI: Ai;
+  README_EMBEDDINGS: VectorizeIndex;
 }

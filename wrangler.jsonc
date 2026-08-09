@@ -59,6 +59,14 @@
     { "binding": "EVIDENCE", "bucket_name": "xapi-evidence" }
   ],
 
+  // Workers AI (embeddings) + Vectorize (similarity search) -- fuzzy
+  // pattern-matching alongside the exact-match README fingerprint dedup,
+  // see src/verify/embeddings.ts.
+  "ai": { "binding": "AI" },
+  "vectorize": [
+    { "binding": "README_EMBEDDINGS", "index_name": "xapi-readme-embeddings" }
+  ],
+
   "queues": {
     "producers": [
       { "binding": "RAW_POSTS", "queue": "raw-posts" },
