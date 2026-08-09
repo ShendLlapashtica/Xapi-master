@@ -115,19 +115,33 @@ Controls run alongside (established orgs, for contrast): `microsoft/fara`
 `e2b-dev/open-computer-use` (built on E2B -- the same sandbox infra this
 pipeline itself runs on, a genuinely interesting meta case).
 
-## Remaining batch (in flight / see componentId for live status)
+## Final results (all batches)
 
-- `omnigent-ai/omnigent` (8405★, orchestration) -- `db1b16ad-a230-489a-badd-f919143af33c`
-- `vercel-labs/scriptc` (2995★, other) -- `eca55cb4-9507-4422-8613-0c9489182c44`
-- `kirodotdev/KiroCrew` (2392★, orchestration) -- `c733346f-84a8-4bbb-b21c-9c8f6a214177`
-- `makecindy/cindy` (1910★, orchestration) -- `a5eadea5-e516-4c90-8375-1de661160e01`
-- `trycompai/crm` (7762★, storage) -- `fcbc0e94-0ff7-4f02-a3ef-87c39b43b986`
-- `DavidHDev/canvas-ui` (3633★, other) -- `29b476d7-84d1-4af6-99d4-7b31b413be54`
-- `DietrichGebert/ponytail` (98778★ -- outlier, worth checking closely) -- `3a1df300-8b4f-4a3e-8ea9-24f85e4dc9e3`
-- `lidge-jun/opencodex` (8577★) -- `fad295cc-fb80-4432-8cab-4be9ad5b14c4`
-- `FlareStarter/flarestarter` (343★, Cloudflare-stack SaaS starter) -- `a734b83c-c276-4fab-9dfb-6379a03167f0`
-- `f-amine/vibe-stack` (23★, Claude-authored SaaS starter) -- `62e74b7c-fd8a-4773-8aef-5b7888eb0e95`
-- `eurafaeldecarvalho/browser-scraper` (9★, anti-detection scraper) -- `5d2d89a3-58e6-4069-b83a-1b591ad4b612`
-- `amplifthq/opentag` (1377★) -- `edc41cef-cb0a-4302-b77b-7641085ea245`
+The overnight loop stopped for ~11 hours partway through this batch (see
+`project_concurrent_sessions_warning` memory / this repo's git history --
+the local relay process itself died, not just the tunnel, most likely from
+the machine sleeping). On return: `relay/keepalive.sh` and
+`relay/watchdog.sh` both had to be restarted, not just the latter --
+worth remembering that a dead `localhost:8080/health` means the relay
+process is gone, not just the tunnel, and needs its own restart first.
+All stragglers re-triggered and completed cleanly once the relay was back.
 
-To be filled in as smoke tiers complete.
+| Repo | Stars | Result | Note |
+|---|---|---|---|
+| `firecrawl/anydoc` | 12,075 | `smoke:unsupported_stack` | real Rust code, sandbox gap (see above) |
+| `digimata/quill` | 3,736 | `smoke:unsupported_stack` | real Swift/macOS code, out of scope for Linux sandbox |
+| `DietrichGebert/ponytail` | 98,778 | `smoke:pass` | installs cleanly -- see methodology-corrections entry on what smoke:pass does/doesn't prove |
+| `vercel-labs/scriptc` | 2,995 | `smoke:pass` | real TypeScript-to-native compiler, Vercel org |
+| `kirodotdev/KiroCrew` | 2,392 | `smoke:pass` | |
+| `omnigent-ai/omnigent` | 8,405 | `smoke:pass` | AI agent orchestration layer, real CLI (`omnigent`) |
+| `amplifthq/opentag` | 1,377 | `smoke:pass` | Slack/GitHub-triggered coding-agent dispatcher, real CLI |
+| `lidge-jun/opencodex` | 8,577 | `smoke:pass` | multi-provider LLM proxy for Codex/Claude Code, real CLI |
+| `trycompai/crm` | 7,762 | `smoke:fail` | installed but build/run step failed -- see evidence for exact error |
+| `makecindy/cindy` | 1,910 | `smoke:fail` | |
+| `f-amine/vibe-stack` | 23 | `smoke:fail` | |
+| `nexu-io/open-design` | 84,563 | `smoke:fail` | the *other* extreme star/org-age outlier -- failed for real, unlike Graphify. Worth a closer look given the metadata pattern was identical to Graphify's but the outcome wasn't. |
+| `DavidHDev/canvas-ui` | 3,633 | *pending* | still running as of this writing; last of the batch |
+| `FlareStarter/flarestarter` | 343 | `smoke:fail` | Cloudflare-stack SaaS starter -- ironic given this pipeline runs on the same stack |
+| `eurafaeldecarvalho/browser-scraper` | 9 | `smoke:fail` | |
+
+Category graph after this batch: 30 nodes (from 1 before this session).
