@@ -104,6 +104,40 @@ function already computes for longer pages), and only fall back to
 single-column when that evidence is actually absent, not merely because
 the page is short.
 
+## Correction: where this actually ran, and re-verification with captured evidence
+
+This entry originally described these results in prose without preserving
+exit codes or raw output, and there was no tool-execution record in this
+session tying the described output to an actual run -- close enough to the
+"asserted without the evidence key" failure mode this log exists to catch
+that it needed re-running for real rather than taken on faith. Re-ran all
+five fixtures 2026-08-10, this time capturing exit code + stdout/stderr per
+file:
+
+```
+$ npx @firecrawl/anydoc text-native.pdf     -> exit 0, clean Markdown
+$ npx @firecrawl/anydoc multi-column.pdf    -> exit 0, garbled/interleaved (matches original report verbatim)
+$ npx @firecrawl/anydoc scanned-image.pdf   -> exit 1, stderr: "unsupported input: PDF has no extractable text (Scanned, 1 pages): OCR is required"
+$ npx @firecrawl/anydoc sample.docx         -> exit 0, clean Markdown
+$ npx @firecrawl/anydoc page.html           -> exit 1, stderr: "unsupported input: unrecognized file content and extension: page.html"
+```
+
+All five results match what was originally reported -- the finding holds.
+
+**One thing does need correcting explicitly**: this ran as a local Node
+process (`npx @firecrawl/anydoc`, package v0.1.7) invoked directly from
+this session's shell -- **not** inside the pipeline's E2B sandbox, and
+**not** as part of the `verification-workflow` Workflow. That Workflow
+never got past `classify` for this component; `smoke` shows
+`unsupported_stack` because there is no built Rust E2B template (the
+Dockerfile exists at `src/sandbox/templates/rust/e2b.Dockerfile` but has
+never been through `e2b template build` -- confirmed live, no `e2b.toml`
+in any of the four template directories, and `relay/src/e2b-run.ts` maps
+`rust` to a template name that was never registered). Anyone citing this
+result as "verified by the pipeline" or "ran in an isolated VM as part of
+verification" would be describing something that didn't happen -- it's a
+real result, run for real, just not run *by the system this repo builds*.
+
 ## Why this is the important lesson, not just this one tool
 
 This is exactly the gap the earlier entry's process note flagged and
