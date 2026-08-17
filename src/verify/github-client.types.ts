@@ -21,3 +21,10 @@ export interface GithubReadme {
   encoding: "base64" | string;
   path: string;
 }
+
+export interface GithubTreeEntry {
+  path: string;
+  type: "blob" | "tree" | "commit";
+  size?: number;
+  sha: string;
+}

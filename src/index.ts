@@ -4,8 +4,10 @@ import { ListenerAgent } from "./listener/listener-agent";
 import { E2bRelayContainer } from "./sandbox/relay-container";
 import type { Env, RawPostMessage, VerifyRequestParams } from "./types";
 import { VerificationWorkflow } from "./verify/verify-workflow";
+import { DomainAuditWorkflow } from "./audit/domain-audit-workflow";
+import { DomainAuditAgent } from "./audit/domain-audit-agent";
 
-export { ListenerAgent, VerificationWorkflow, E2bRelayContainer };
+export { ListenerAgent, VerificationWorkflow, E2bRelayContainer, DomainAuditWorkflow, DomainAuditAgent };
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

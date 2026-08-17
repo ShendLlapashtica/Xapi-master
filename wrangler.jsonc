@@ -14,11 +14,14 @@
   "dev": { "enable_containers": false },
 
   // ListenerAgent — Agents SDK Durable Object, polls X on a self-renewing schedule.
+  // DomainAuditAgent — same pattern, daily self-renewing schedule, re-audits
+  // whatever's marked `watched` in the domains table (see src/audit/domain-audit-agent.ts).
   // E2bRelayContainer — Cloudflare Container fronting relay/ (see relay/README.md):
   // the one hop that can speak gRPC to E2B's envd, since Workers' fetch can't.
   "durable_objects": {
     "bindings": [
       { "name": "LISTENER_AGENT", "class_name": "ListenerAgent" },
+      { "name": "DOMAIN_AUDIT_AGENT", "class_name": "DomainAuditAgent" },
       { "name": "E2B_RELAY", "class_name": "E2bRelayContainer" }
     ]
   },
@@ -32,15 +35,22 @@
   ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["ListenerAgent"] },
-    { "tag": "v2", "new_sqlite_classes": ["E2bRelayContainer"] }
+    { "tag": "v2", "new_sqlite_classes": ["E2bRelayContainer"] },
+    { "tag": "v3", "new_sqlite_classes": ["DomainAuditAgent"] }
   ],
 
-  // VerificationWorkflow — one durable run per newly-discovered repo
+  // VerificationWorkflow — one durable run per newly-discovered repo.
+  // DomainAuditWorkflow — one run per domain audit trigger (re-audits create new instances).
   "workflows": [
     {
       "name": "verification-workflow",
       "binding": "VERIFICATION_WORKFLOW",
       "class_name": "VerificationWorkflow"
+    },
+    {
+      "name": "domain-audit-workflow",
+      "binding": "DOMAIN_AUDIT_WORKFLOW",
+      "class_name": "DomainAuditWorkflow"
     }
   ],
 

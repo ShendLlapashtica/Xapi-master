@@ -15,7 +15,7 @@ import {
   updateComponentSanityPass,
   updateComponentStatus,
 } from "../catalog/components-repo";
-import { evidenceKey, writeEvidenceBatch } from "../catalog/evidence-store";
+import { evidenceKey, writeEvidenceBatch, type EvidenceWrite } from "../catalog/evidence-store";
 import {
   CAPABILITY_TIER_CATEGORY,
   type Category,
@@ -33,9 +33,12 @@ import { computeMajorityVerdict } from "./majority-verdict";
 import { fingerprintReadme } from "./readme-fingerprint";
 import { isTerminalStatus } from "./status";
 import { runCapabilityFixture, FIXTURES } from "./steps/capability";
+import { runDangerScan } from "./steps/danger-scan";
+import { runSecretsScan } from "./steps/secrets-scan";
 import { runSanityCheck } from "./steps/sanity";
+import { detectUnverifiableClaim } from "./steps/unverifiable-claim";
 import { detectStackForRepo, runSmoke } from "./steps/smoke";
-import { createXClient, postTweet } from "../listener/x-client";
+import { insertPendingPost } from "../catalog/posts-repo";
 
 // Deliberately no emoji, no ALL-CAPS -- this is a public reply attached to
 // a stranger's post, and reads as a bot regardless, but a measured,
@@ -85,8 +88,46 @@ function formatTweetText(component: ComponentRow): string {
   return msg;
 }
 
-async function postWorkflowResult(step: WorkflowStep, db: D1Database, env: Env, componentId: string): Promise<void> {
-  await step.do("post-to-x", async () => {
+// Shared by draftStartedPost and draftWorkflowResult: a component discovered
+// manually (POST /admin/verify-repo, not a live X post) has nothing to reply
+// to, and never did -- this is the same guard the old direct-posting code
+// had, just factored out so both draft points apply it identically.
+async function resolveReplyTweetId(db: D1Database, componentId: string): Promise<string | null> {
+  const sourcePosts = await listSourcePostsForComponent(db, componentId);
+  const originalPost = sourcePosts.reduce((oldest, current) => {
+    return !oldest || new Date(current.posted_at) < new Date(oldest.posted_at) ? current : oldest;
+  }, null as SourcePostRow | null);
+
+  if (!originalPost || originalPost.post_url === "manual-trigger" || originalPost.post_id.startsWith("manual-")) {
+    return null;
+  }
+  return originalPost.post_id;
+}
+
+// Drafts a "started checking" reply as soon as there's a real repo worth
+// saying that about (sanity passed) -- makes an in-progress run visible
+// instead of silent until the terminal result, without needing a live
+// status endpoint. Same draft-then-approve queue as the result post below;
+// nothing here calls X.
+export async function draftStartedPost(step: WorkflowStep, db: D1Database, componentId: string, repoOwner: string, repoName: string): Promise<void> {
+  await step.do("draft-started-post", async () => {
+    const tweetId = await resolveReplyTweetId(db, componentId);
+    if (!tweetId) return;
+
+    const text = `Xapi check — now verifying ${repoOwner}/${repoName}. ${RESULTS_URL}`;
+    await insertPendingPost(db, { id: crypto.randomUUID(), componentId, replyToTweetId: tweetId, text });
+  });
+}
+
+// Drafts the terminal-result reply instead of posting it directly -- nothing
+// in this file calls X anymore. The only place postTweet() is ever actually
+// called is the admin approve handler (src/api/posts-route.ts), gated on
+// X_POSTING_ENABLED and a cooldown, after a human reviews the draft this
+// creates. Every guard below (terminal-status check, manual-trigger skip)
+// is unchanged from the direct-posting code this replaced -- only the final
+// action changed, from "call postTweet" to "insert a pending row."
+export async function draftWorkflowResult(step: WorkflowStep, db: D1Database, componentId: string): Promise<void> {
+  await step.do("draft-result-post", async () => {
     const finalComponent = await getComponent(db, componentId);
     if (!finalComponent) return;
 
@@ -94,36 +135,14 @@ async function postWorkflowResult(step: WorkflowStep, db: D1Database, env: Env, 
       return;
     }
 
-    const sourcePosts = await listSourcePostsForComponent(db, componentId);
-    const originalPost = sourcePosts.reduce((oldest, current) => {
-      return !oldest || new Date(current.posted_at) < new Date(oldest.posted_at) ? current : oldest;
-    }, null as SourcePostRow | null);
-
-    if (!originalPost || originalPost.post_url === "manual-trigger" || originalPost.post_id.startsWith("manual-")) {
-      console.log(`[X Bot] Skipping X post: component ${componentId} was triggered manually.`);
+    const tweetId = await resolveReplyTweetId(db, componentId);
+    if (!tweetId) {
+      console.log(`[X Bot] Skipping draft: component ${componentId} was triggered manually.`);
       return;
     }
 
-    const tweetId = originalPost.post_id;
     const text = formatTweetText(finalComponent);
-
-    if (env.X_SESSION_TOKEN) {
-      const client = createXClient(env.X_SESSION_TOKEN);
-      try {
-        await postTweet(client, text, tweetId);
-      } catch (err) {
-        // Deliberately swallowed, not rethrown: step.do() retries a step
-        // that throws, and X's own response can fail/time out *after* the
-        // reply already went through server-side -- rethrowing here risks
-        // a second real reply to the same tweet on retry. A silently
-        // missed reply is a far better failure mode for a public-facing
-        // bot than a duplicate one; this is caught, not corrupted -- the
-        // component's verification result is unaffected either way.
-        console.error(`[X Bot] Failed to post reply for component ${componentId}, not retrying:`, err);
-      }
-    } else {
-      console.log(`[X Bot] Would post tweet: "${text}" replying to: ${tweetId || "none"}`);
-    }
+    await insertPendingPost(db, { id: crypto.randomUUID(), componentId, replyToTweetId: tweetId, text });
   });
 }
 
@@ -142,7 +161,7 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
     try {
       await this.runVerification(event, step);
     } finally {
-      await postWorkflowResult(step, this.env.DB, this.env, componentId);
+      await draftWorkflowResult(step, this.env.DB, componentId);
     }
   }
 
@@ -181,6 +200,62 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
       return;
     }
     const commitSha = sanity.headSha;
+
+    await draftStartedPost(step, this.env.DB, componentId, repoOwner, repoName);
+
+    // ---- Danger scan ----
+    // Static content scan for supply-chain/malware shapes -- no code
+    // execution, same class of checks as the repo-vetting skill's hard
+    // gates (pipe-to-shell, eval, credential-exfil-into-network-call,
+    // suspicious npm install hooks). Runs here, before classify, so a
+    // flagged repo never costs a Groq call or reaches a sandbox. Reuses
+    // the existing sanity:fail status rather than adding a new one --
+    // deliberately not touching src/types.ts's ComponentStatus union
+    // while another session has substantial uncommitted work in that
+    // file (domain-node types, see git status 2026-08-16); this can move
+    // to its own status value once that lands and the merge is clean.
+    const dangerScan = await step.do("danger-scan", async () => runDangerScan(repoOwner, repoName, commitSha, this.env));
+    await step.do("danger-scan-persist", async () => {
+      await writeEvidenceBatch(this.env.EVIDENCE, [
+        {
+          key: evidenceKey(componentId, "danger-scan", "result.json"),
+          body: JSON.stringify(dangerScan, null, 2),
+          contentType: "application/json",
+        },
+      ]);
+      if (!dangerScan.passed) {
+        await updateComponentStatus(this.env.DB, componentId, "sanity:fail", true);
+      }
+    });
+
+    if (!dangerScan.passed) {
+      return;
+    }
+
+    // ---- Secrets scan ----
+    // Distinct concern from danger-scan above: that catches code shaped
+    // like it exfiltrates a credential; this catches literal secret
+    // material committed into the tree, whether or not anything in the
+    // repo ever reads it. Same fail-fast-before-classify placement, same
+    // reused sanity:fail status, same reason (see danger-scan's comment
+    // above about not touching the ComponentStatus union mid-merge).
+    const secretsScan = await step.do("secrets-scan", async () => runSecretsScan(repoOwner, repoName, commitSha, this.env));
+    await step.do("secrets-scan-persist", async () => {
+      await writeEvidenceBatch(this.env.EVIDENCE, [
+        {
+          key: evidenceKey(componentId, "secrets-scan", "result.json"),
+          body: JSON.stringify(secretsScan, null, 2),
+          contentType: "application/json",
+        },
+      ]);
+      if (!secretsScan.passed) {
+        await updateComponentStatus(this.env.DB, componentId, "sanity:fail", true);
+      }
+    });
+
+    if (!secretsScan.passed) {
+      return;
+    }
 
     // ---- Classify ("Understand") ----
     const readmeText = await step.do("classify-fetch-readme", async () =>
@@ -228,15 +303,34 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
           async () => classifyReadme(readmeText, { apiKey: this.env.GROQ_API_KEY }, existingClades),
         );
 
+        // Flags evidence only, never blocks or changes status -- a repo
+        // whose whole claim is "works against a named live third-party
+        // site" can't have that claim verified here (would mean testing
+        // someone else's production system without authorization), so
+        // this records the honest caveat instead of letting a later
+        // smoke:pass imply something it never checked.
+        const unverifiableClaim = detectUnverifiableClaim(
+          classifyResult.classification.claims,
+          classifyResult.classification.mechanismSummary,
+        );
+
         await step.do("classify-persist", async () => {
-          await writeEvidenceBatch(this.env.EVIDENCE, [
+          const evidenceEntries: EvidenceWrite[] = [
             { key: evidenceKey(componentId, "classify", "readme.md"), body: readmeText },
             {
               key: evidenceKey(componentId, "classify", "response.json"),
               body: classifyResult.rawResponseText,
               contentType: "application/json",
             },
-          ]);
+          ];
+          if (unverifiableClaim.unverifiable) {
+            evidenceEntries.push({
+              key: evidenceKey(componentId, "classify", "unverifiable-claim.json"),
+              body: JSON.stringify(unverifiableClaim, null, 2),
+              contentType: "application/json",
+            });
+          }
+          await writeEvidenceBatch(this.env.EVIDENCE, evidenceEntries);
           // Two-level: resolve/create the parent clade first (top-level,
           // parentId null), then the specific leaf under it -- the actual
           // subclade nesting. findOrCreateCategoryNode's check-then-insert

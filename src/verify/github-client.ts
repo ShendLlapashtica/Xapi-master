@@ -1,5 +1,5 @@
 import { base64ToText } from "../lib/base64";
-import type { GithubCommit, GithubContentEntry, GithubReadme, GithubRepo } from "./github-client.types";
+import type { GithubCommit, GithubContentEntry, GithubReadme, GithubRepo, GithubTreeEntry } from "./github-client.types";
 
 const API_BASE = "https://api.github.com";
 
@@ -97,4 +97,55 @@ export async function listContents(
   if (res.status === 404) return [];
   if (!res.ok) throw new Error(`GitHub listContents failed: ${res.status} ${await res.text()}`);
   return (await res.json()) as GithubContentEntry[];
+}
+
+// Danger-scan tier: whole-repo file listing in one call, rather than
+// walking directories one at a time like listContents -- recursive=1
+// returns every blob's path + size, which is what a size-capped content
+// scan needs to decide what's even worth reading.
+export async function getTree(
+  owner: string,
+  repo: string,
+  ref: string,
+  options: GithubClientOptions,
+): Promise<GithubTreeEntry[]> {
+  const res = await githubFetch(`/repos/${owner}/${repo}/git/trees/${ref}?recursive=1`, options);
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`GitHub getTree failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as { tree?: GithubTreeEntry[] };
+  return body.tree ?? [];
+}
+
+// Danger-scan tier: raw file text via raw.githubusercontent.com rather
+// than the contents API -- a separate host with a separate rate limit, so
+// scanning ~30 files per repo doesn't eat into the same api.github.com
+// budget every other tier shares, and returns plain text directly instead
+// of base64 needing a decode step.
+//
+// raw.githubusercontent.com is unauthenticated -- against a private repo it
+// 404s even with a valid GITHUB_TOKEN, because the token never reaches that
+// host. When that happens and a token *is* available, fall back to the
+// authenticated Contents API (same {content, encoding} shape as
+// getReadmeText's response, decoded the same way) so a private repo isn't
+// silently treated as "nothing to scan." No token -> identical behavior to
+// before: one unauthenticated request, null on any failure.
+export async function getRawFile(
+  owner: string,
+  repo: string,
+  ref: string,
+  path: string,
+  options: GithubClientOptions & { fetchImpl?: typeof fetch },
+): Promise<string | null> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const res = await fetchImpl(
+    `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`,
+  );
+  if (res.ok) return res.text();
+  if (!options.token) return null;
+
+  const apiRes = await githubFetch(`/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`, options);
+  if (!apiRes.ok) return null;
+  const body = (await apiRes.json()) as GithubReadme; // same {content, encoding, path} shape
+  if (body.encoding !== "base64") return body.content;
+  return base64ToText(body.content.replace(/\n/g, ""));
 }

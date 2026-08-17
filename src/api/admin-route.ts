@@ -1,6 +1,7 @@
 import { upsertAccount } from "../catalog/components-repo";
 import { discoverRepo } from "../extract/extract-consumer";
 import { canonicalizeGithubUrl } from "../extract/github-url";
+import { findDomainByHostname, insertDiscoveredDomain, setDomainWatched } from "../catalog/domains-repo";
 import type { Env } from "../types";
 
 interface SeedAccountsBody {
@@ -14,7 +15,17 @@ interface VerifyRepoBody {
   repoUrl: string;
 }
 
-function isAuthorized(request: Request, env: Env): boolean {
+interface AuditDomainBody {
+  hostname: string; // e.g. "autokoreablendi.com" or "https://autokoreablendi.com"
+  // Marks the domain as belonging to DomainAuditAgent's recurring work list
+  // (see src/audit/domain-audit-agent.ts) instead of just this one-off run.
+  // Reuses this route rather than adding a new one -- watching is a
+  // property of a domain this route already discovers/audits, not a
+  // separate concern.
+  watched?: boolean;
+}
+
+export function isAuthorized(request: Request, env: Env): boolean {
   const authHeader = request.headers.get("authorization") ?? "";
   return Boolean(env.ADMIN_TOKEN) && authHeader === `Bearer ${env.ADMIN_TOKEN}`;
 }
@@ -61,6 +72,79 @@ export async function handleAdminVerifyRepo(request: Request, env: Env): Promise
     message: result.isNew
       ? "component discovered, verification workflow enqueued"
       : "repo already known -- source post recorded, no new verification run started",
+  });
+}
+
+/** Canonicalize a hostname input: strip scheme, path, and trailing slashes. */
+function canonicalizeHostname(input: string): string | null {
+  let h = input.trim().toLowerCase();
+  // Strip scheme
+  h = h.replace(/^https?:\/\//, "");
+  // Strip path and query
+  h = h.split("/")[0] ?? "";
+  h = h.split("?")[0] ?? "";
+  // Basic validation: must have at least one dot and only valid chars
+  if (!/^[a-z0-9.-]+$/.test(h) || !h.includes(".")) return null;
+  return h;
+}
+
+// Trigger a domain security audit without going through any external source --
+// useful for auditing your own sites or any domain you want in the knowledge graph.
+export async function handleAdminAuditDomain(request: Request, env: Env): Promise<Response> {
+  if (!isAuthorized(request, env)) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  let body: AuditDomainBody;
+  try {
+    body = (await request.json()) as AuditDomainBody;
+  } catch {
+    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+
+  if (!body.hostname) {
+    return Response.json({ error: "body.hostname is required" }, { status: 400 });
+  }
+
+  const hostname = canonicalizeHostname(body.hostname);
+  if (!hostname) {
+    return Response.json({ error: `not a valid hostname: ${body.hostname}` }, { status: 400 });
+  }
+
+  // Find or create domain row
+  const existing = await findDomainByHostname(env.DB, hostname);
+  let domainId: string;
+  let isNew: boolean;
+
+  if (existing) {
+    domainId = existing.id;
+    isNew = false;
+  } else {
+    domainId = crypto.randomUUID();
+    await insertDiscoveredDomain(env.DB, domainId, hostname);
+    isNew = true;
+  }
+
+  if (body.watched !== undefined) {
+    await setDomainWatched(env.DB, domainId, body.watched);
+  }
+
+  // Trigger a fresh audit workflow. Use a timestamped id so re-auditing
+  // the same domain creates a new workflow instance (not a duplicate-id conflict).
+  const workflowId = `domain-audit-${domainId}-${Date.now()}`;
+  await env.DOMAIN_AUDIT_WORKFLOW.create({
+    id: workflowId,
+    params: { domainId, hostname },
+  });
+
+  return Response.json({
+    domainId,
+    hostname,
+    isNew,
+    workflowId,
+    message: isNew
+      ? "domain discovered, audit workflow triggered"
+      : "domain already known -- re-audit triggered",
   });
 }
 

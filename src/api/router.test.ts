@@ -1,7 +1,18 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { router } from "./router";
 import type { Env } from "../types";
+
+// router.ts now reaches posts-route.ts -> ../listener/x-client -> rettiwt-api
+// on every import, which breaks under this test runner regardless of which
+// route a given test actually exercises (a real, documented, pre-existing
+// issue -- see README.md's "Known-fragile, honestly" and
+// listener-agent.test.ts's identical workaround). Nothing in this file
+// touches X directly; the mock exists purely to keep that chain from loading.
+vi.mock("../listener/x-client", () => ({
+  createXClient: vi.fn(() => ({})),
+  postTweet: vi.fn(),
+}));
 
 const testEnv = env as unknown as Env;
 

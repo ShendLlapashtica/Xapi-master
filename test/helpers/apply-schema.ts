@@ -1,9 +1,10 @@
 // Applies migrations/*.sql statement-by-statement via prepare().run() rather
 // than D1Database.exec() (which has stricter single-line-statement,
 // no-comment constraints) so local test runs don't depend on that parser.
-// Keep this in sync with migrations/0001_init.sql, 0002_category_graph.sql,
-// 0003_readme_fingerprint.sql, 0004_x_user_id_optional.sql, and
-// 0005_component_edges.sql.
+// Keep this in sync with migrations/0001_init.sql through 0008_posts.sql.
+// (0006/0007/0008 were missing entirely until 2026-08-17 -- backfilled
+// together rather than one migration at a time, to avoid three separate
+// partial edits to this file colliding.)
 const STATEMENTS: string[] = [
   `CREATE TABLE accounts (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,6 +63,76 @@ const STATEMENTS: string[] = [
   )`,
   `CREATE INDEX idx_component_edges_from ON component_edges(from_component_id)`,
   `CREATE INDEX idx_component_edges_to ON component_edges(to_component_id)`,
+
+  // 0006_domain_nodes.sql
+  `CREATE TABLE domains (
+    id              TEXT PRIMARY KEY,
+    hostname        TEXT NOT NULL UNIQUE,
+    audit_status    TEXT NOT NULL DEFAULT 'discovered',
+    last_audited_at TEXT,
+    discovered_at   TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+  `CREATE INDEX idx_domains_status ON domains(audit_status)`,
+  `CREATE TABLE domain_audit_results (
+    id               TEXT PRIMARY KEY,
+    domain_id        TEXT NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+    audited_at       TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    score_total      INTEGER NOT NULL DEFAULT 0,
+    score_dns        INTEGER,
+    score_email      INTEGER,
+    score_tls        INTEGER,
+    score_headers    INTEGER,
+    score_reputation INTEGER,
+    score_infra      INTEGER,
+    score_app        INTEGER,
+    attributes       TEXT NOT NULL
+  )`,
+  `CREATE INDEX idx_domain_audit_results_domain ON domain_audit_results(domain_id)`,
+  `CREATE TABLE domain_component_edges (
+    id           TEXT PRIMARY KEY,
+    domain_id    TEXT NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+    component_id TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    relationship TEXT NOT NULL DEFAULT 'operator',
+    created_at   TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    UNIQUE (domain_id, component_id, relationship)
+  )`,
+  `CREATE TABLE domain_sibling_edges (
+    id           TEXT PRIMARY KEY,
+    domain_a_id  TEXT NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+    domain_b_id  TEXT NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+    relationship TEXT NOT NULL DEFAULT 'sibling_operator',
+    created_at   TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    UNIQUE (domain_a_id, domain_b_id)
+  )`,
+
+  // 0007_domain_watch_and_diffs.sql
+  `ALTER TABLE domains ADD COLUMN watched INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE domains ADD COLUMN watched_at TEXT`,
+  `CREATE INDEX idx_domains_watched ON domains(watched)`,
+  `CREATE TABLE domain_audit_diffs (
+    id             TEXT PRIMARY KEY,
+    domain_id      TEXT NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+    prev_result_id TEXT NOT NULL REFERENCES domain_audit_results(id) ON DELETE CASCADE,
+    curr_result_id TEXT NOT NULL REFERENCES domain_audit_results(id) ON DELETE CASCADE,
+    changed_keys   TEXT NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+  `CREATE INDEX idx_domain_audit_diffs_domain ON domain_audit_diffs(domain_id)`,
+
+  // 0008_posts.sql
+  `CREATE TABLE posts (
+    id                TEXT PRIMARY KEY,
+    component_id      TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    reply_to_tweet_id TEXT NOT NULL,
+    text              TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'pending',
+    created_at        TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    reviewed_at       TEXT,
+    posted_at         TEXT,
+    error             TEXT
+  )`,
+  `CREATE INDEX idx_posts_status ON posts(status)`,
+  `CREATE INDEX idx_posts_component ON posts(component_id)`,
 ];
 
 export async function applySchema(db: D1Database): Promise<void> {
@@ -71,6 +142,12 @@ export async function applySchema(db: D1Database): Promise<void> {
 }
 
 export async function resetSchema(db: D1Database): Promise<void> {
+  await db.prepare("DROP TABLE IF EXISTS posts").run();
+  await db.prepare("DROP TABLE IF EXISTS domain_audit_diffs").run();
+  await db.prepare("DROP TABLE IF EXISTS domain_sibling_edges").run();
+  await db.prepare("DROP TABLE IF EXISTS domain_component_edges").run();
+  await db.prepare("DROP TABLE IF EXISTS domain_audit_results").run();
+  await db.prepare("DROP TABLE IF EXISTS domains").run();
   await db.prepare("DROP TABLE IF EXISTS component_edges").run();
   await db.prepare("DROP TABLE IF EXISTS source_posts").run();
   await db.prepare("DROP TABLE IF EXISTS components").run();

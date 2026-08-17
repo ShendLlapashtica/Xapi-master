@@ -77,6 +77,27 @@ WORKER_URL=https://xapi.<subdomain>.workers.dev ADMIN_TOKEN=... npm run seed:acc
 then `POST /admin/listener/start` once to bootstrap the Durable Object's
 recurring poll (it's lazy -- needs one manual hit after deploy/token-set).
 
+**Posting is draft-then-approve, not automatic, even once `X_SESSION_TOKEN`
+is set.** A verification run drafts two replies to the tweet that surfaced
+the repo -- one when it starts (`draftStartedPost`), one with the terminal
+verdict (`draftWorkflowResult`) -- into a `posts` table with status
+`pending`. Nothing in `src/verify/verify-workflow.ts` calls X. Review and
+act on drafts:
+```
+GET  /admin/posts?status=pending
+POST /admin/posts/<id>/approve   -- actually posts it; the only place postTweet() is ever called
+POST /admin/posts/<id>/reject
+```
+`approve` additionally requires `X_POSTING_ENABLED=true` (`wrangler secret
+put X_POSTING_ENABLED`, separate from `X_SESSION_TOKEN`) -- a kill switch
+checked fresh on every call, off by default even with a session token
+configured. It also enforces a 30-minute cooldown since the last successful
+post (`getMostRecentlyPostedAt`), because a burst of manually-triggered
+verifications finishing close together is the most bot-like, most
+suspension-risky posting pattern this account can produce. A failed post
+(`postTweet` throwing) marks the row `post_failed` and is never retried
+automatically, for the same duplicate-reply reason described below.
+
 **Known-fragile, honestly:** X ships frontend changes regularly, and any of
 them can rotate internal GraphQL query IDs or invalidate a session without
 notice -- when that happens, polling goes silent (no new posts, no error),

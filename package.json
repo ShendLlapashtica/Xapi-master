@@ -12,7 +12,8 @@
     "types": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply xapi-catalog --local",
     "db:migrate:remote": "wrangler d1 migrations apply xapi-catalog --remote",
-    "seed:accounts": "tsx scripts/seed-accounts.ts"
+    "seed:accounts": "tsx scripts/seed-accounts.ts",
+    "setup:x-session": "tsx scripts/setup-x-session.ts"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7",
