@@ -11,4 +11,9 @@ GITHUB_TOKEN=
 GROQ_API_KEY=
 E2B_API_KEY=
 ADMIN_TOKEN=diqkadiqka
+# Optional -- read-only access to GET /admin/posts, without the full
+# ADMIN_TOKEN's ability to approve/reject posts, seed accounts, or trigger
+# workflows. Leave empty to disable this tier entirely (only ADMIN_TOKEN
+# works then, same as before this existed).
+ADMIN_READONLY_TOKEN=
 RELAY_SHARED_SECRET=

@@ -471,6 +471,10 @@ export interface Env {
   GROQ_API_KEY: string;
   E2B_API_KEY: string;
   ADMIN_TOKEN: string;
+  // Optional scoped tier: read-only access to GET /admin/posts without the
+  // full ADMIN_TOKEN's ability to approve/reject posts, seed accounts, or
+  // trigger workflows. See src/api/admin-route.ts's isReadAuthorized.
+  ADMIN_READONLY_TOKEN: string;
   RELAY_SHARED_SECRET: string;
   // Fuzzy pattern matching alongside the exact-match README fingerprint --
   // see src/verify/embeddings.ts.

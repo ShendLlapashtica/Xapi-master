@@ -15,6 +15,7 @@ export default defineConfig({
           GROQ_API_KEY: "test-groq-key",
           E2B_API_KEY: "test-e2b-key",
           ADMIN_TOKEN: "test-admin-token",
+          ADMIN_READONLY_TOKEN: "test-admin-readonly-token",
           RELAY_SHARED_SECRET: "test-relay-shared-secret",
         },
       },

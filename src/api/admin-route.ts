@@ -30,6 +30,19 @@ export function isAuthorized(request: Request, env: Env): boolean {
   return Boolean(env.ADMIN_TOKEN) && authHeader === `Bearer ${env.ADMIN_TOKEN}`;
 }
 
+// Scoped tier for read-only admin routes (currently just GET /admin/posts)
+// -- accepts ADMIN_TOKEN (a superset) or the separate ADMIN_READONLY_TOKEN,
+// so a second person can be handed read access to the posts queue without
+// holding the credential that can approve/reject posts, seed accounts, or
+// trigger workflows. ADMIN_READONLY_TOKEN is optional; unset, only
+// ADMIN_TOKEN works here, same as before this tier existed. See README.md's
+// "Admin token operations".
+export function isReadAuthorized(request: Request, env: Env): boolean {
+  if (isAuthorized(request, env)) return true;
+  const authHeader = request.headers.get("authorization") ?? "";
+  return Boolean(env.ADMIN_READONLY_TOKEN) && authHeader === `Bearer ${env.ADMIN_READONLY_TOKEN}`;
+}
+
 // Manual stand-in for the Listen stage (BRIEF.md's ListenerAgent) when
 // there's no X API access to actually discover posts -- feeds a GitHub repo
 // straight into the same discoverRepo() path a real post's link would hit,

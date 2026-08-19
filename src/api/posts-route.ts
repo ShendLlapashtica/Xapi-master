@@ -1,4 +1,4 @@
-import { isAuthorized } from "./admin-route";
+import { isAuthorized, isReadAuthorized } from "./admin-route";
 import {
   POST_STATUSES,
   getMostRecentlyPostedAt,
@@ -25,7 +25,7 @@ function isStatus(value: string): value is PostStatus {
 }
 
 export async function handleAdminListPosts(request: Request, env: Env): Promise<Response> {
-  if (!isAuthorized(request, env)) {
+  if (!isReadAuthorized(request, env)) {
     return new Response("Unauthorized", { status: 401 });
   }
 

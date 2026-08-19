@@ -6,6 +6,9 @@ that first -- this is the "how to actually run it" doc, not the design doc.
 **Live deployment:** `https://xapi.prishtina-online.workers.dev` -- `GET /`
 shows current status, including which secrets are actually configured.
 
+See [PRIVACY.md](PRIVACY.md) for what data each tier sends to third-party
+services (GitHub, Groq, E2B, and the domain-audit probes' DNS/crt.sh calls).
+
 ## Known deviations from BRIEF.md
 
 Two decisions were made after the brief was signed off, both driven by cost
@@ -236,6 +239,7 @@ Cloudflare Container instead of a local process behind a quick tunnel.
    wrangler secret put E2B_API_KEY          # forwarded into the relay container, see src/sandbox/relay-container.ts
    wrangler secret put RELAY_SHARED_SECRET  # generate a long random value; the relay needs the identical value, see relay/README.md
    wrangler secret put ADMIN_TOKEN          # gates /admin/* routes
+   wrangler secret put ADMIN_READONLY_TOKEN # optional -- read-only access to GET /admin/posts, see "Admin token operations" below
    # X_BEARER_TOKEN: optional, only if you've bought X API access -- see "Known deviations" above
    ```
 
@@ -260,6 +264,31 @@ Cloudflare Container instead of a local process behind a quick tunnel.
    `npm run seed:accounts`, then `POST /admin/listener/start` to bootstrap
    the DO's recurring poll -- Durable Objects are lazy, so this needs one
    manual hit after deploy.)
+
+## Admin token operations
+
+`ADMIN_TOKEN` gates every mutating `/admin/*` route (approve/reject posts,
+seed accounts, trigger verify/audit workflows). It's a single credential
+today, held by one person -- if that person is unreachable, every admin
+action (including feeding a repo in manually) is blocked until they're
+back. Two mitigations:
+
+- **Scoped read-only tier.** `ADMIN_READONLY_TOKEN` (optional) authorizes
+  `GET /admin/posts` only -- a second person can be handed this without
+  also getting the ability to approve/reject posts, seed accounts, or
+  trigger anything. `Authorization: Bearer <token>` works with either
+  `ADMIN_TOKEN` or `ADMIN_READONLY_TOKEN` for that one route; every
+  mutating route still checks `ADMIN_TOKEN` alone.
+- **Rotation.** Both are plain `wrangler secret put` values -- rotating
+  either one is one command, takes effect immediately, no redeploy:
+  ```bash
+  wrangler secret put ADMIN_TOKEN
+  wrangler secret put ADMIN_READONLY_TOKEN
+  ```
+  `wrangler secret put` is **write-only** -- there's no command to read a
+  secret's current value back out, from the CLI or from Xapi itself. If
+  the current value is lost (not saved anywhere when it was set), the only
+  recovery is rotating to a new one; there's nothing to retrieve.
 
 ## Querying the catalog
 

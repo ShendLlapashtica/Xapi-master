@@ -67,6 +67,16 @@ describe("handleAdminListPosts", () => {
     expect(body.items.map((p) => p.id)).toEqual(["p1"]);
   });
 
+  it("accepts the scoped ADMIN_READONLY_TOKEN too", async () => {
+    const res = await handleAdminListPosts(
+      new Request("https://xapi.example/admin/posts", {
+        headers: { authorization: `Bearer ${testEnv.ADMIN_READONLY_TOKEN}` },
+      }),
+      testEnv,
+    );
+    expect(res.status).toBe(200);
+  });
+
   it("400s on an unknown status", async () => {
     const res = await handleAdminListPosts(
       new Request("https://xapi.example/admin/posts?status=bogus", {
@@ -81,6 +91,15 @@ describe("handleAdminListPosts", () => {
 describe("handleAdminApprovePost", () => {
   it("rejects a missing/incorrect bearer token", async () => {
     const res = await handleAdminApprovePost(adminRequest("/admin/posts/p1/approve", "wrong"), testEnv, "p1");
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects the scoped ADMIN_READONLY_TOKEN -- read-only, no approve access", async () => {
+    const res = await handleAdminApprovePost(
+      adminRequest("/admin/posts/p1/approve", testEnv.ADMIN_READONLY_TOKEN),
+      testEnv,
+      "p1",
+    );
     expect(res.status).toBe(401);
   });
 

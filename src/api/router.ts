@@ -34,7 +34,7 @@ export async function router(request: Request, env: Env): Promise<Response> {
         "GET /components?category=&status=",
         "GET /domains?limit=&cursor=",
         "GET /evidence/*",
-        "GET /admin/posts?status=&limit=&cursor= (requires Authorization: Bearer <ADMIN_TOKEN>)",
+        "GET /admin/posts?status=&limit=&cursor= (requires Authorization: Bearer <ADMIN_TOKEN or ADMIN_READONLY_TOKEN>)",
         "POST /admin/accounts/seed (requires Authorization: Bearer <ADMIN_TOKEN>)",
         "POST /admin/listener/start (requires Authorization: Bearer <ADMIN_TOKEN>)",
         "POST /admin/verify-repo { repoUrl } (requires Authorization: Bearer <ADMIN_TOKEN>) -- manually feed a repo into the pipeline without X",
