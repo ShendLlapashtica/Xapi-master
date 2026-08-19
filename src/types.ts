@@ -184,6 +184,16 @@ export interface ComponentEdgeRow {
   created_at: string;
 }
 
+// See src/catalog/decision-log.ts and migrations/0009_decision_log.sql.
+export interface ComponentVerdictRow {
+  id: string;
+  component_id: string;
+  status: ComponentStatus;
+  reasoning: string;
+  evidence_key: string | null;
+  recorded_at: string;
+}
+
 export interface SourcePostRow {
   id: number;
   component_id: string;
@@ -218,6 +228,9 @@ export interface ComponentSummaryDTO {
   verifiedAt: string | null;
   evidence: { prefix: string; links: string[] };
   sourcePosts: Array<{ postUrl: string; authorHandle: string; postedAt: string }>;
+  // Provenance trail: one entry per tier decision, in order, from
+  // src/catalog/decision-log.ts's traceDecisionChain.
+  decisionChain: Array<{ status: ComponentStatus; reasoning: string; recordedAt: string }>;
 }
 
 export interface ComponentsResponse {

@@ -133,6 +133,17 @@ const STATEMENTS: string[] = [
   )`,
   `CREATE INDEX idx_posts_status ON posts(status)`,
   `CREATE INDEX idx_posts_component ON posts(component_id)`,
+
+  // 0009_decision_log.sql
+  `CREATE TABLE component_verdicts (
+    id           TEXT PRIMARY KEY,
+    component_id TEXT NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    status       TEXT NOT NULL,
+    reasoning    TEXT NOT NULL,
+    evidence_key TEXT,
+    recorded_at  TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+  `CREATE INDEX idx_component_verdicts_component ON component_verdicts(component_id)`,
 ];
 
 export async function applySchema(db: D1Database): Promise<void> {
@@ -142,6 +153,7 @@ export async function applySchema(db: D1Database): Promise<void> {
 }
 
 export async function resetSchema(db: D1Database): Promise<void> {
+  await db.prepare("DROP TABLE IF EXISTS component_verdicts").run();
   await db.prepare("DROP TABLE IF EXISTS posts").run();
   await db.prepare("DROP TABLE IF EXISTS domain_audit_diffs").run();
   await db.prepare("DROP TABLE IF EXISTS domain_sibling_edges").run();

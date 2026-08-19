@@ -5,6 +5,7 @@ import {
   parseCategory,
   parseClaims,
 } from "../catalog/components-repo";
+import { traceDecisionChain } from "../catalog/decision-log";
 import { evidencePrefix, listEvidenceKeys } from "../catalog/evidence-store";
 import {
   CATEGORIES,
@@ -55,10 +56,11 @@ export async function handleComponentsRequest(request: Request, env: Env): Promi
 
 async function toComponentSummaryDTO(row: ComponentRow, env: Env): Promise<ComponentSummaryDTO> {
   const prefix = evidencePrefix(row.id);
-  const [sourcePosts, evidenceLinks, categoryNodeRow] = await Promise.all([
+  const [sourcePosts, evidenceLinks, categoryNodeRow, decisionChain] = await Promise.all([
     listSourcePostsForComponent(env.DB, row.id),
     listEvidenceKeys(env.EVIDENCE, prefix),
     row.category_node_id ? getCategoryNode(env.DB, row.category_node_id) : Promise.resolve(null),
+    traceDecisionChain(env.DB, row.id),
   ]);
 
   return {
@@ -85,6 +87,11 @@ async function toComponentSummaryDTO(row: ComponentRow, env: Env): Promise<Compo
       postUrl: p.post_url,
       authorHandle: p.author_handle,
       postedAt: p.posted_at,
+    })),
+    decisionChain: decisionChain.map((v) => ({
+      status: v.status,
+      reasoning: v.reasoning,
+      recordedAt: v.recorded_at,
     })),
   };
 }

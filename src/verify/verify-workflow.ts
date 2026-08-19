@@ -15,6 +15,7 @@ import {
   updateComponentSanityPass,
   updateComponentStatus,
 } from "../catalog/components-repo";
+import { recordVerdict } from "../catalog/decision-log";
 import { evidenceKey, writeEvidenceBatch, type EvidenceWrite } from "../catalog/evidence-store";
 import {
   CAPABILITY_TIER_CATEGORY,
@@ -193,6 +194,13 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
         await updateComponentSanityPass(this.env.DB, componentId, sanity.headSha);
       } else {
         await updateComponentStatus(this.env.DB, componentId, "sanity:fail", true);
+        await recordVerdict(
+          this.env.DB,
+          componentId,
+          "sanity:fail",
+          sanity.reason ?? "sanity check failed",
+          evidenceKey(componentId, "sanity", "result.json"),
+        );
       }
     });
 
@@ -225,6 +233,13 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
       ]);
       if (!dangerScan.passed) {
         await updateComponentStatus(this.env.DB, componentId, "sanity:fail", true);
+        await recordVerdict(
+          this.env.DB,
+          componentId,
+          "sanity:fail",
+          `danger scan flagged: ${dangerScan.findings.map((f) => f.pattern).join(", ")}`,
+          evidenceKey(componentId, "danger-scan", "result.json"),
+        );
       }
     });
 
@@ -250,6 +265,13 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
       ]);
       if (!secretsScan.passed) {
         await updateComponentStatus(this.env.DB, componentId, "sanity:fail", true);
+        await recordVerdict(
+          this.env.DB,
+          componentId,
+          "sanity:fail",
+          `secrets scan flagged: ${secretsScan.findings.map((f) => f.pattern).join(", ")}`,
+          evidenceKey(componentId, "secrets-scan", "result.json"),
+        );
       }
     });
 
@@ -424,6 +446,7 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
     if (stack === "unsupported" || stack === "go" || stack === "rust") {
       await step.do("smoke-persist-unsupported", async () => {
         await updateComponentStatus(this.env.DB, componentId, "smoke:unsupported_stack", true);
+        await recordVerdict(this.env.DB, componentId, "smoke:unsupported_stack", `detected stack: ${stack}`);
       });
       return;
     }
@@ -456,6 +479,13 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
     const smokeTerminal = isTerminalStatus(smokeStatus, category);
     await step.do("smoke-persist", async () => {
       await updateComponentStatus(this.env.DB, componentId, smokeStatus, smokeTerminal);
+      await recordVerdict(
+        this.env.DB,
+        componentId,
+        smokeStatus,
+        smoke.passed ? "build exited 0" : `build exited ${smoke.exitCode ?? "non-zero"}`,
+        evidenceKey(componentId, "smoke", "result.json"),
+      );
     });
 
     if (!smoke.passed || category !== CAPABILITY_TIER_CATEGORY) {
@@ -470,6 +500,12 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
       // touching a sandbox.
       await step.do("capability-persist-no-invocation", async () => {
         await updateComponentStatus(this.env.DB, componentId, "capability:undetermined", true);
+        await recordVerdict(
+          this.env.DB,
+          componentId,
+          "capability:undetermined",
+          "classified into the capability tier but no usable CLI invocation was extracted",
+        );
       });
       return;
     }
@@ -519,6 +555,13 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
     const verdict = computeMajorityVerdict(fixtureResults);
     await step.do("capability-verdict-persist", async () => {
       await updateComponentStatus(this.env.DB, componentId, verdict, true);
+      const usableCount = fixtureResults.filter((r) => r.outcome === "usable").length;
+      await recordVerdict(
+        this.env.DB,
+        componentId,
+        verdict,
+        `${usableCount}/${fixtureResults.length} fixtures usable`,
+      );
     });
   }
 }
