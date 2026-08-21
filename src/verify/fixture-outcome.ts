@@ -39,7 +39,8 @@ export function classifyFixtureOutcome(
     run.outputText.trim().length > 0 &&
     wordCount >= expected.minWordCount &&
     (expected.expectedStructures.length === 0 ||
-      expected.expectedStructures.some((s) => detectedStructures.includes(s)));
+      expected.expectedStructures.some((s) => detectedStructures.includes(s))) &&
+    anchorsInOrder(run.outputText, expected.expectedOrderedAnchors);
 
   return {
     outcome: clearsBar ? "usable" : "unusable",
@@ -75,4 +76,25 @@ function detectStructures(text: string | null): StructuralElement[] {
   if (hasMarkdownTable || hasHtmlTable) found.add("table");
 
   return [...found];
+}
+
+// Whitespace-normalized, case-insensitive substring search, so a phrase
+// that happens to fall across a line-wrap in the tool's output still
+// matches. Absence of the constraint (undefined/empty) always passes --
+// this only ever adds a bar, never removes the ones above it.
+function anchorsInOrder(text: string | null, anchors: string[] | undefined): boolean {
+  if (!anchors || anchors.length === 0) return true;
+  if (!text) return false;
+
+  const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  const haystack = normalize(text);
+
+  let searchFrom = 0;
+  for (const anchor of anchors) {
+    const needle = normalize(anchor);
+    const foundAt = haystack.indexOf(needle, searchFrom);
+    if (foundAt === -1) return false;
+    searchFrom = foundAt + needle.length;
+  }
+  return true;
 }

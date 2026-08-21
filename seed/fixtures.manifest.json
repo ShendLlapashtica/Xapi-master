@@ -15,7 +15,13 @@
     "fixtureId": "multi-column-pdf",
     "file": "multi-column.pdf",
     "minWordCount": 180,
-    "expectedStructures": []
+    "expectedStructures": [],
+    "expectedOrderedAnchors": [
+      "Paper documents have carried information for centuries",
+      "produce output that a downstream system can actually use",
+      "Scanned pages present a harder problem than native text",
+      "preserving the sentence order a human reader would expect"
+    ]
   },
   {
     "fixtureId": "docx",

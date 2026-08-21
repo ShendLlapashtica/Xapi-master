@@ -123,6 +123,13 @@ export interface FixtureExpectedProfile {
   file: string; // key under fixtures/ in R2
   minWordCount: number;
   expectedStructures: StructuralElement[];
+  // Optional short, distinctive phrase fragments from the fixture's known
+  // source text, in true reading order. When present, output must contain
+  // all of them, in this relative order, to count as usable -- catches
+  // interleaved/reordered-but-word-complete output (e.g. a naive
+  // multi-column reader splicing columns row-by-row) that word count and
+  // structure detection alone can't distinguish from correct extraction.
+  expectedOrderedAnchors?: string[];
 }
 
 export interface FixtureResult {

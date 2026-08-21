@@ -107,4 +107,63 @@ describe("classifyFixtureOutcome", () => {
     expect(result.detectedStructures).toContain("heading");
     expect(result.outcome).toBe("usable");
   });
+
+  // Regression test for the real firecrawl/anydoc finding
+  // (diligence/2026-08-10-anydoc-manual-capability-test.md): word count and
+  // structure detection alone scored this exact garbled output as usable,
+  // because the interleaved text still contains every real word from the
+  // fixture. expectedOrderedAnchors is what closes that gap.
+  const multiColumnExpected: FixtureExpectedProfile = {
+    fixtureId: "multi-column-pdf",
+    file: "multi-column.pdf",
+    minWordCount: 10,
+    expectedStructures: [],
+    expectedOrderedAnchors: [
+      "left column, first sentence",
+      "left column, second sentence",
+      "right column, first sentence",
+      "right column, second sentence",
+    ],
+  };
+
+  it("marks correctly column-ordered output as usable", () => {
+    const outputText = [
+      "left column, first sentence.",
+      "left column, second sentence.",
+      "right column, first sentence.",
+      "right column, second sentence.",
+    ].join(" ");
+    const result = classifyFixtureOutcome(
+      { exitCode: 0, stderr: "", outputText },
+      multiColumnExpected,
+    );
+    expect(result.outcome).toBe("usable");
+  });
+
+  it("marks row-interleaved column output as unusable even with enough words and no structure requirement", () => {
+    // Same four fragments as above, same total word count -- just row-by-row
+    // interleaved (left1, right1, left2, right2) instead of column-by-column,
+    // matching the real naive-extractor failure mode.
+    const outputText = [
+      "left column, first sentence.",
+      "right column, first sentence.",
+      "left column, second sentence.",
+      "right column, second sentence.",
+    ].join(" ");
+    const result = classifyFixtureOutcome(
+      { exitCode: 0, stderr: "", outputText },
+      multiColumnExpected,
+    );
+    expect(result.outcome).toBe("unusable");
+    expect(result.wordCount).toBeGreaterThanOrEqual(multiColumnExpected.minWordCount);
+  });
+
+  it("is unaffected by expectedOrderedAnchors when the profile doesn't set any", () => {
+    const outputText = Array(30).fill("word").join(" ");
+    const result = classifyFixtureOutcome(
+      { exitCode: 0, stderr: "", outputText },
+      baseExpected,
+    );
+    expect(result.outcome).toBe("usable");
+  });
 });
