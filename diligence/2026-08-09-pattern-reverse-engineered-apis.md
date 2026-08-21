@@ -43,9 +43,21 @@ every other entry in this log:
 - `xob0t/google_photos_web_client` (33★, Python, MIT) -- reverse-engineered Google Photos *web* API client -- notably closer to the sensitive end: this one operates against an authenticated personal-account surface, not a public dataset like the two above.
 - `nikitaxru/tbank-mobile-api` (16★, Python, MIT) -- reverse-engineered from a banking app's mobile API traffic -- the most sensitive category tested tonight (financial account access); included specifically to see how the pipeline's own claims-extraction handles a repo whose entire premise is "this is not authorized by the vendor."
 
-Results pending smoke completion -- componentIds: `d0d39dc4-...`,
-`2c5b1863-...`, `12a1ae4a-...`, `8f63d7dd-...` (full ids in this batch's
-mapping). To be filled in once evidence lands.
+**Update 2026-08-21, checked live:** `imageFX-api`, `google_photos_web_client`,
+and `tbank-mobile-api` all reached `smoke:pass` (installs cleanly) and now
+have real `category_node_id` leaves via the 2026-08-21 backfill.
+`unofficial-pddikti-api` hit `sanity:fail` -- correctly, per its own
+description above ("no license"), not a pipeline bug. None reached
+`capability` -- this category has no capability-tier fixtures (see "What
+this suggests" below), so `smoke:pass` here is the ceiling today and means
+what the methodology-corrections entry already warned about: installs, not
+"the reverse-engineering actually works as claimed." Building real
+capability fixtures for this category is a materially bigger design
+problem than the document-parsing-conversion set: those five fixtures are
+one shared input format every tool in that category takes, while every
+reverse-engineered wrapper here targets a *different* live third-party
+site -- there's no single fixture that works across the category, only
+per-tool, per-target test design. Flagged, not attempted speculatively.
 
 ## What this suggests for the category graph
 
