@@ -2,6 +2,7 @@ import { upsertAccount } from "../catalog/components-repo";
 import { discoverRepo } from "../extract/extract-consumer";
 import { canonicalizeGithubUrl } from "../extract/github-url";
 import { findDomainByHostname, insertDiscoveredDomain, setDomainWatched } from "../catalog/domains-repo";
+import { backfillCategoryForComponent } from "../verify/backfill-category";
 import type { Env } from "../types";
 
 interface SeedAccountsBody {
@@ -13,6 +14,10 @@ interface SeedAccountsBody {
 
 interface VerifyRepoBody {
   repoUrl: string;
+}
+
+interface BackfillCategoryBody {
+  componentIds: string[];
 }
 
 interface AuditDomainBody {
@@ -86,6 +91,39 @@ export async function handleAdminVerifyRepo(request: Request, env: Env): Promise
       ? "component discovered, verification workflow enqueued"
       : "repo already known -- source post recorded, no new verification run started",
   });
+}
+
+// See diligence/2026-08-09-category-node-id-backfill-gap.md and
+// src/verify/backfill-category.ts's file comment for the full "why". Runs
+// sequentially, not in parallel -- each non-duplicate row costs a Groq
+// call, and Groq's free-tier token budget is shared across concurrent
+// requests (same constraint verify-workflow.ts's classify-llm step
+// guards against). A batch of 20 rows can take several minutes if
+// several land on the non-duplicate/backoff path; that's expected, not a
+// bug -- this is an admin-triggered one-off, not a request in the
+// critical path of anything.
+export async function handleAdminBackfillCategory(request: Request, env: Env): Promise<Response> {
+  if (!isAuthorized(request, env)) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  let body: BackfillCategoryBody;
+  try {
+    body = (await request.json()) as BackfillCategoryBody;
+  } catch {
+    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+
+  if (!Array.isArray(body.componentIds) || body.componentIds.length === 0) {
+    return Response.json({ error: "body.componentIds must be a non-empty array" }, { status: 400 });
+  }
+
+  const results = [];
+  for (const componentId of body.componentIds) {
+    results.push(await backfillCategoryForComponent(env, componentId));
+  }
+
+  return Response.json({ results });
 }
 
 /** Canonicalize a hostname input: strip scheme, path, and trailing slashes. */

@@ -1,5 +1,5 @@
 import { getAgentByName } from "agents";
-import { handleAdminAccountsSeed, handleAdminVerifyRepo, handleAdminAuditDomain } from "./admin-route";
+import { handleAdminAccountsSeed, handleAdminVerifyRepo, handleAdminAuditDomain, handleAdminBackfillCategory } from "./admin-route";
 import { handleComponentsRequest } from "./components-route";
 import { handleEvidenceRequest } from "./evidence-route";
 import { handleDomainsRequest } from "./domains-route";
@@ -38,6 +38,7 @@ export async function router(request: Request, env: Env): Promise<Response> {
         "POST /admin/accounts/seed (requires Authorization: Bearer <ADMIN_TOKEN>)",
         "POST /admin/listener/start (requires Authorization: Bearer <ADMIN_TOKEN>)",
         "POST /admin/verify-repo { repoUrl } (requires Authorization: Bearer <ADMIN_TOKEN>) -- manually feed a repo into the pipeline without X",
+        "POST /admin/backfill-category { componentIds: string[] } (requires Authorization: Bearer <ADMIN_TOKEN>) -- backfill category_node_id for already-classified components that predate it; skips rows that already have one or never reached classify",
         "POST /admin/audit-domain { hostname, watched? } (requires Authorization: Bearer <ADMIN_TOKEN>) -- trigger a domain security audit; watched:true adds it to DomainAuditAgent's recurring work list",
         "POST /admin/domain-audit-agent/start (requires Authorization: Bearer <ADMIN_TOKEN>) -- bootstrap the recurring self-audit schedule",
         "POST /admin/posts/:id/approve (requires Authorization: Bearer <ADMIN_TOKEN>, and X_POSTING_ENABLED=true) -- actually post a pending draft reply",
@@ -83,6 +84,10 @@ export async function router(request: Request, env: Env): Promise<Response> {
 
   if (request.method === "POST" && url.pathname === "/admin/audit-domain") {
     return handleAdminAuditDomain(request, env);
+  }
+
+  if (request.method === "POST" && url.pathname === "/admin/backfill-category") {
+    return handleAdminBackfillCategory(request, env);
   }
   // Bootstraps the singleton ListenerAgent's recurring poll schedule.
   // Durable Objects are lazy -- this needs to be hit once after deploy
