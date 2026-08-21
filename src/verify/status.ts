@@ -30,3 +30,20 @@ export function isTerminalStatus(status: ComponentStatus, category: Category | n
   if (status === "smoke:pass" && category === CAPABILITY_TIER_CATEGORY) return false;
   return true;
 }
+
+// A terminal smoke:pass (i.e. outside CAPABILITY_TIER_CATEGORY, where
+// nothing further ever runs) is a real result that's easy to over-read as
+// "verified" -- diligence log precedent: Graphify-Labs/graphify (104k
+// stars, 6-week-old org) and KeygraphHQ/shannon (claims to autonomously
+// execute exploits against live web apps) both sit at smoke:pass with
+// nothing else checked (diligence/2026-08-09-methodology-corrections.md).
+// The decisionChain reasoning string is the only place in the evidence
+// trail that says what this status does and doesn't mean, so it says so
+// explicitly rather than relying on a reader having also read xapi.md.
+export function smokeReasoning(passed: boolean, exitCode: number | null, terminal: boolean): string {
+  if (!passed) return `build exited ${exitCode ?? "non-zero"}`;
+  if (terminal) {
+    return "build exited 0 -- confirms the code installs/builds; capability-tier fixtures don't exist for this category, so functional claims are unverified";
+  }
+  return "build exited 0";
+}

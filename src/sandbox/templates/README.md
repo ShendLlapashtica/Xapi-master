@@ -7,28 +7,49 @@ inside the image, because egress is enforced by E2B's platform-level
 and `src/sandbox/egress-policy.ts`), not by anything baked into the
 template.
 
-## One-time setup (per stack, once you have an E2B account)
+**Current state, concretely** (`relay/src/e2b-run.ts`'s `E2B_TEMPLATE_NAMES`
+map, verified live): `node` and `python` need no custom build at all --
+E2B's stock `"base"` template already ships Python 3.11+pip and Node
+20+npm. Only `go` and `rust` are missing; `E2B_TEMPLATE_NAMES` maps them to
+template names (`"go"`, `"rust"`) that don't exist on E2B's platform yet,
+which is why every Go/Rust repo stops at `smoke:unsupported_stack` today.
+The two Dockerfiles in this directory (`go/e2b.Dockerfile`,
+`rust/e2b.Dockerfile`) are ready; nobody has run a build against them.
+
+## Building go/rust -- no local Docker required
+
+E2B shipped "Build System 2.0": `Template.build()`, part of the `e2b` SDK
+(`^2.38.0` here, `devDependencies` at the repo root) builds happen on E2B's
+own infrastructure, not on your machine -- this replaced the old
+`npx @e2b/cli template build` CLI path, which needed a local Docker daemon
+to build the image before pushing it. `src/sandbox/templates/build-templates.ts`
+reuses the existing Dockerfiles verbatim (`Template().fromDockerfile(...)`)
+so nothing about the image definitions changes, just how they're built:
 
 ```bash
-npx @e2b/cli auth login
-cd src/sandbox/templates/node
-npx @e2b/cli template build --name xapi-node --dockerfile e2b.Dockerfile --cpu-count 2 --memory-mb 2048
+E2B_API_KEY=... npm run build:sandbox-templates        # builds both go and rust
+E2B_API_KEY=... npx tsx src/sandbox/templates/build-templates.ts go   # one stack
 ```
 
-Repeat for `python`, `go`, `rust` (adjust `--name` accordingly). This
-generates an `e2b.toml` in each directory -- intentionally not hand-written
-here, since its exact schema is CLI-tool-owned and auto-populated (team ID,
-generated template ID, etc.); confirm current flags with
-`npx @e2b/cli template build --help`, the CLI's own `--help` is more
-current than anything written here.
+The template names it registers (`go`, `rust`) are already what
+`relay/src/e2b-run.ts`'s `E2B_TEMPLATE_NAMES` expects -- no name-mapping
+step needed once this runs. **Not yet run end to end** -- verified against
+the installed SDK's type definitions
+(`relay/node_modules/e2b/dist/index.d.ts`) and confirmed it fails cleanly
+with a clear message when `E2B_API_KEY` is unset (the only credential this
+needs), not against a real build. Whoever has `E2B_API_KEY` should run it
+and confirm live, then update this note.
 
-The resulting template names (`xapi-node`, `xapi-python`, `xapi-go`,
-`xapi-rust`) are what `relay/src/e2b-run.ts` passes as `Sandbox.create(template, ...)` --
-keep them in sync with whatever `RunRequest.template` values
-`src/verify/steps/smoke.ts` sends (currently the bare stack name: `"node"`,
-`"python"`, `"go"`, `"rust"` -- either rename the templates to match exactly,
-or add a small name-mapping table in `relay/src/e2b-run.ts` before this goes
-live).
+## If you'd rather use the old CLI path
+
+`npx @e2b/cli template build` still exists and still needs local Docker.
+Same Dockerfiles, same `--cpu-count 2 --memory-mb 2048`. `--dockerfile
+e2b.Dockerfile` from inside `src/sandbox/templates/go/` (or `rust/`), name
+the template `go` / `rust` to match `E2B_TEMPLATE_NAMES`. This generates an
+`e2b.toml` in the directory -- intentionally not hand-written here, since
+its exact schema is CLI-tool-owned and auto-populated (team ID, generated
+template ID, etc.); confirm current flags with
+`npx @e2b/cli template build --help`.
 
 ## Resource limits
 

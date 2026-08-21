@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTerminalStatus, tierForStatus } from "./status";
+import { isTerminalStatus, smokeReasoning, tierForStatus } from "./status";
 
 describe("tierForStatus", () => {
   it("maps discovered and sanity:fail to none", () => {
@@ -48,5 +48,25 @@ describe("isTerminalStatus", () => {
   it("every capability:* status is terminal", () => {
     expect(isTerminalStatus("capability:pass", "document-parsing-conversion")).toBe(true);
     expect(isTerminalStatus("capability:undetermined", "document-parsing-conversion")).toBe(true);
+  });
+});
+
+describe("smokeReasoning", () => {
+  it("reports the exit code on a failed build", () => {
+    expect(smokeReasoning(false, 1, true)).toBe("build exited 1");
+  });
+
+  it("falls back to 'non-zero' when a failed build has no exit code", () => {
+    expect(smokeReasoning(false, null, true)).toBe("build exited non-zero");
+  });
+
+  it("flags the unverified-functionality caveat when a passing build is terminal", () => {
+    const reasoning = smokeReasoning(true, 0, true);
+    expect(reasoning).toContain("build exited 0");
+    expect(reasoning).toContain("functional claims are unverified");
+  });
+
+  it("omits the caveat when a passing build is not terminal (capability tier still pending)", () => {
+    expect(smokeReasoning(true, 0, false)).toBe("build exited 0");
   });
 });

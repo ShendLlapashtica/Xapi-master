@@ -329,10 +329,15 @@ verify once you have a real E2B account" section.
   see the script's own comment). The real fix is moving `relay/` onto the
   Cloudflare Container it's already declared as, or any other
   Docker-capable host.
-- `src/sandbox/templates/README.md` -- the four E2B sandbox templates need
-  to be built once via the E2B CLI; their generated names need to line up
-  with what `relay/src/e2b-run.ts` passes as `Sandbox.create(template, ...)`.
-  Until then, `go`/`rust` repos correctly stop at
+- `src/sandbox/templates/README.md` -- only `go`/`rust` need a custom
+  template built; `node`/`python` already run on E2B's stock `"base"`
+  template. `src/sandbox/templates/build-templates.ts` builds them via
+  E2B's Build System 2.0 (`Template.build()`) with **no local Docker
+  needed** -- just `E2B_API_KEY` (`npm run build:sandbox-templates`); the
+  old CLI/Docker path still works too if you'd rather use it. Not yet run
+  live by anyone (no `E2B_API_KEY` was available to confirm it end to end)
+  -- whoever has the key should run it once and update that README's note.
+  Until it's run, `go`/`rust` repos correctly stop at
   `smoke:unsupported_stack` (see "Reliability test" above) rather than
   being attempted.
 - `src/index.ts`'s duplicate-workflow-id detection matches on error message

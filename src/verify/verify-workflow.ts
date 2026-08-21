@@ -32,7 +32,7 @@ import { classifyReadme } from "./groq-client";
 import { getReadmeText } from "./github-client";
 import { computeMajorityVerdict } from "./majority-verdict";
 import { fingerprintReadme } from "./readme-fingerprint";
-import { isTerminalStatus } from "./status";
+import { isTerminalStatus, smokeReasoning } from "./status";
 import { runCapabilityFixture, FIXTURES } from "./steps/capability";
 import { runDangerScan } from "./steps/danger-scan";
 import { runSecretsScan } from "./steps/secrets-scan";
@@ -483,7 +483,7 @@ export class VerificationWorkflow extends WorkflowEntrypoint<Env, VerifyRequestP
         this.env.DB,
         componentId,
         smokeStatus,
-        smoke.passed ? "build exited 0" : `build exited ${smoke.exitCode ?? "non-zero"}`,
+        smokeReasoning(smoke.passed, smoke.exitCode, smokeTerminal),
         evidenceKey(componentId, "smoke", "result.json"),
       );
     });
